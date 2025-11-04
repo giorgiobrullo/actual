@@ -33,6 +33,7 @@ import { CustomReportListCards } from './reports/CustomReportListCards';
 import { FormulaCard } from './reports/FormulaCard';
 import { MarkdownCard } from './reports/MarkdownCard';
 import { NetWorthCard } from './reports/NetWorthCard';
+import { SankeyCard } from './reports/SankeyCard';
 import { SpendingCard } from './reports/SpendingCard';
 import './overview.scss';
 import { SummaryCard } from './reports/SummaryCard';
@@ -82,6 +83,8 @@ export function Overview({ dashboard }: OverviewProps) {
 
   const { data: customReports, isLoading: isCustomReportsLoading } =
     useReports();
+
+  const sankeyFeatureFlag = useFeatureFlag('sankeyReport');
 
   const customReportMap = useMemo(
     () => new Map(customReports.map(report => [report.id, report])),
@@ -538,6 +541,14 @@ export function Overview({ dashboard }: OverviewProps) {
                                   },
                                 ]
                               : []),
+                            ...(sankeyFeatureFlag
+                              ? [
+                                  {
+                                    name: 'sankey-card' as const,
+                                    text: t('Sankey card'),
+                                  },
+                                ]
+                              : []),
                             {
                               name: 'custom-report' as const,
                               text: t('New custom report'),
@@ -770,6 +781,18 @@ export function Overview({ dashboard }: OverviewProps) {
                         />
                       ) : widget.type === 'formula-card' && formulaMode ? (
                         <FormulaCard
+                          widgetId={item.i}
+                          isEditing={isEditing}
+                          meta={widget.meta}
+                          onMetaChange={newMeta => onMetaChange(item, newMeta)}
+                          onRemove={() => onRemoveWidget(item.i)}
+                          onCopy={targetDashboardId =>
+                            onCopyWidget(item.i, targetDashboardId)
+                          }
+                        />
+                      ) : widget.type === 'sankey-card' &&
+                        sankeyFeatureFlag ? (
+                        <SankeyCard
                           widgetId={item.i}
                           isEditing={isEditing}
                           meta={widget.meta}

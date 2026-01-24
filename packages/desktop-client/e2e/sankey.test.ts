@@ -5,6 +5,7 @@ import { ConfigurationPage } from './page-models/configuration-page';
 import { Navigation } from './page-models/navigation';
 import { type ReportsPage } from './page-models/reports-page';
 import { type SankeyPage } from './page-models/sankey-page';
+import { SettingsPage } from './page-models/settings-page';
 
 test.describe('Sankey Report', () => {
   let page: Page;
@@ -12,6 +13,7 @@ test.describe('Sankey Report', () => {
   let reportsPage: ReportsPage;
   let sankeyPage: SankeyPage;
   let configurationPage: ConfigurationPage;
+  let settingsPage: SettingsPage;
 
   test.beforeEach(async ({ browser }) => {
     page = await browser.newPage();
@@ -20,6 +22,10 @@ test.describe('Sankey Report', () => {
 
     await page.goto('/');
     await configurationPage.createTestFile();
+
+    // Enable the experimental Sankey report feature
+    settingsPage = await navigation.goToSettingsPage();
+    await settingsPage.enableExperimentalFeature('Sankey report');
   });
 
   test.afterEach(async () => {

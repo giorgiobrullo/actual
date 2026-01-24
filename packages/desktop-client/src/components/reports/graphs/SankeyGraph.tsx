@@ -307,6 +307,11 @@ function convertToCondensed(data: SankeyData) {
     node => node.name === BUDGET_NODE_NAME,
   );
 
+  // If no budget node found, return empty data
+  if (budgetNodeIndex === -1) {
+    return { nodes: [], links: [] };
+  }
+
   // Calculate total income (links going into the "Budget" node)
   const totalIncome = data.links.reduce((acc, link) => {
     return link.target === budgetNodeIndex ? acc + link.value : acc;
@@ -317,17 +322,32 @@ function convertToCondensed(data: SankeyData) {
     return link.source === budgetNodeIndex ? acc + link.value : acc;
   }, 0);
 
-  return {
-    nodes: [
-      { name: 'Income' },
-      { name: BUDGET_NODE_NAME },
-      { name: 'Expenses' },
-    ],
-    links: [
-      { source: 0, target: 1, value: totalIncome },
-      { source: 1, target: 2, value: totalExpenses },
-    ],
-  };
+  // If no income and no expenses, return empty data
+  if (totalIncome === 0 && totalExpenses === 0) {
+    return { nodes: [], links: [] };
+  }
+
+  const nodes = [{ name: BUDGET_NODE_NAME }];
+  const links: Array<{ source: number; target: number; value: number }> = [];
+
+  // Only add income node and link if there's income
+  if (totalIncome > 0) {
+    nodes.unshift({ name: 'Income' });
+    links.push({ source: 0, target: 1, value: totalIncome });
+  }
+
+  // Only add expenses node and link if there are expenses
+  if (totalExpenses > 0) {
+    const budgetIndex = totalIncome > 0 ? 1 : 0;
+    nodes.push({ name: 'Expenses' });
+    links.push({
+      source: budgetIndex,
+      target: nodes.length - 1,
+      value: totalExpenses,
+    });
+  }
+
+  return { nodes, links };
 }
 
 type SankeyGraphProps = {
@@ -356,10 +376,29 @@ export function SankeyGraph({
     return collapseSankeyBranches(data, collapsedSet);
   }, [compact, data, collapsedSet]);
 
-  if (!sankeyData.links || sankeyData.links.length === 0) return null;
+  if (!sankeyData.links || sankeyData.links.length === 0) {
+    return (
+      <Container style={{ ...style, ...(compact && { height: 150 }) }}>
+        {() => (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100%',
+              color: theme.pageTextSubdued,
+              fontSize: compact ? 12 : 14,
+            }}
+          >
+            <Trans>No data to display</Trans>
+          </div>
+        )}
+      </Container>
+    );
+  }
 
   return (
-    <Container style={{ ...style, ...(compact && { height: 'auto' }) }}>
+    <Container style={{ ...style, ...(compact && { height: 200 }) }}>
       {(width, height) => (
         <ResponsiveContainer>
           <Sankey

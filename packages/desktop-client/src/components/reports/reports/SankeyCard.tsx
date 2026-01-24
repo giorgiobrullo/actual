@@ -115,12 +115,7 @@ export function SankeyCard({
         </View>
 
         {data ? (
-          <SankeyGraph
-            data={data}
-            compact
-            showTooltip={!isEditing}
-            style={{ height: 'auto', flex: 1 }}
-          />
+          <SankeyGraph data={data} compact showTooltip={!isEditing} />
         ) : (
           <LoadingIndicator />
         )}

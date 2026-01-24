@@ -94,8 +94,8 @@ async function getAccountOldestTransaction(id): Promise<TransactionEntity> {
 
 async function getAccountSyncStartDate(id) {
   // Enable Banking may support more than 90 days depending on the bank.
-  // Try to get up to 5 years of data - bank will return what it can.
-  const dates = [monthUtils.subDays(monthUtils.currentDay(), 365 * 5)];
+  // Try to get up to 20 years of data - bank will return what it can.
+  const dates = [monthUtils.subDays(monthUtils.currentDay(), 365 * 20)];
 
   const oldestTransaction = await getAccountOldestTransaction(id);
 

@@ -19,6 +19,21 @@ import { useFormat } from '@desktop-client/hooks/useFormat';
 import { usePrivacyMode } from '@desktop-client/hooks/usePrivacyMode';
 import { useSyncedPref } from '@desktop-client/hooks/useSyncedPref';
 
+// Expense colors - balanced saturation, avoiding green (income) and blue (budget)
+// Medium saturation for readability without being garish
+const expenseColors = [
+  '#E27A3F', // Orange (from qualitative)
+  '#9C6ADE', // Purple
+  '#DF5A49', // Red (from qualitative)
+  '#EFC94C', // Yellow (from qualitative)
+  '#E2A37F', // Peach (from qualitative)
+  '#D4749D', // Rose
+  '#B8860B', // Dark Goldenrod
+  '#CD853F', // Peru/Tan
+  '#BC6C6C', // Dusty Coral
+  '#A57C4A', // Warm Bronze
+];
+
 const BUDGET_NODE_NAME = 'Available Funds';
 
 type SankeyTooltipProps = {
@@ -72,7 +87,9 @@ type SankeyGraphNode = SankeyData['nodes'][number] & {
   toBudget?: number;
   nodeType?: 'income' | 'expense' | 'budget';
   isNegative?: boolean;
+  isUnderspent?: boolean;
   actualValue?: number;
+  colorIndex?: number;
   targetLinks?: Array<Record<string, unknown>>;
   sourceLinks?: Array<Record<string, unknown>>;
 };
@@ -91,6 +108,7 @@ type SankeyLinkProps = {
     target: SankeyGraphNode;
     value: number;
     isNegative?: boolean;
+    isUnderspent?: boolean;
   };
   isHovered: boolean;
   onMouseEnter: () => void;
@@ -110,8 +128,26 @@ function SankeyLink({
   onMouseEnter,
   onMouseLeave,
 }: SankeyLinkProps) {
-  // Use red color for negative differences (overspent), blue for others
-  const linkColor = payload.isNegative ? theme.errorText : theme.reportsGray;
+  // Color links based on node types and negative/underspent status
+  let linkColor = theme.reportsGray;
+  if (payload.isNegative) {
+    // Overspent - red
+    linkColor = theme.errorText;
+  } else if (payload.isUnderspent) {
+    // Underspent (difference mode) - green for positive performance
+    linkColor = theme.reportsGreen;
+  } else if (payload.source?.nodeType === 'income') {
+    linkColor = theme.reportsGreen;
+  } else if (payload.target?.name === 'For Next Month') {
+    // "For Next Month" is money staying in budget - use budget blue
+    linkColor = theme.reportsBlue;
+  } else if (payload.target?.nodeType === 'expense') {
+    // Links to expense nodes use the target's expense color for visual continuity
+    const colorIndex = (payload.target?.colorIndex ?? 0) % expenseColors.length;
+    linkColor = expenseColors[colorIndex];
+  } else if (payload.source?.nodeType === 'budget') {
+    linkColor = theme.reportsBlue;
+  }
 
   // Enhanced styling on hover: thicker stroke and full opacity
   const strokeWidth = isHovered ? linkWidth + 2 : linkWidth;
@@ -157,12 +193,34 @@ function SankeyNode({
   containerWidth,
 }: SankeyNodeProps) {
   const privacyMode = usePrivacyMode();
-  const isOut = x + width + 6 > containerWidth;
   const nodeLabel = payload.name;
   const format = useFormat();
 
-  // Use red color for negative (overspent) categories, blue for others
-  const fillColor = payload.isNegative ? theme.errorText : theme.reportsBlue;
+  // Leaf nodes have no outgoing links - always show text on the right
+  const isLeaf = !payload.sourceLinks || payload.sourceLinks.length === 0;
+  // For non-leaf nodes near the right edge, show text on the left
+  const isOut = !isLeaf && x + width + 6 > containerWidth;
+
+  // Color nodes based on their type and performance status
+  let fillColor = theme.reportsBlue;
+  if (payload.isNegative) {
+    // Overspent - red
+    fillColor = theme.errorText;
+  } else if (payload.isUnderspent) {
+    // Underspent (difference mode) - green for positive performance
+    fillColor = theme.reportsGreen;
+  } else if (payload.nodeType === 'income') {
+    fillColor = theme.reportsGreen;
+  } else if (payload.nodeType === 'budget') {
+    fillColor = theme.reportsBlue;
+  } else if (payload.name === 'For Next Month') {
+    // "For Next Month" is money staying in budget, not an expense - use budget blue
+    fillColor = theme.reportsBlue;
+  } else if (payload.nodeType === 'expense') {
+    // Use sequential colors for expense categories
+    const colorIndex = (payload.colorIndex ?? 0) % expenseColors.length;
+    fillColor = expenseColors[colorIndex];
+  }
   const fillOpacity = 1;
 
   // Use actualValue if available (for difference view with zero values), otherwise use payload.value
@@ -378,7 +436,7 @@ export function SankeyGraph({
 
   if (!sankeyData.links || sankeyData.links.length === 0) {
     return (
-      <Container style={{ ...style, ...(compact && { height: 150 }) }}>
+      <Container style={{ ...style, ...(compact && { minHeight: 300 }) }}>
         {() => (
           <div
             style={{
@@ -398,7 +456,7 @@ export function SankeyGraph({
   }
 
   return (
-    <Container style={{ ...style, ...(compact && { height: 200 }) }}>
+    <Container style={{ ...style, ...(compact && { minHeight: 300 }) }}>
       {(width, height) => (
         <ResponsiveContainer>
           <Sankey
@@ -425,7 +483,7 @@ export function SankeyGraph({
             height={height}
             margin={{
               left: 0,
-              right: 0,
+              right: compact ? 80 : 120,
               top: compact ? 0 : 10,
               bottom: compact ? 0 : 25,
             }}

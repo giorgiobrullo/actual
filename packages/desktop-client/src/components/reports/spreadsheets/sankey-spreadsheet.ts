@@ -112,6 +112,8 @@ export function createSpreadsheet(
   conditions: RuleConditionEntity[] = [],
   conditionsOp: 'and' | 'or' = 'and',
   mode: 'budgeted' | 'spent' | 'difference' = 'budgeted',
+  grouped: boolean = true,
+  sortBy: 'category' | 'value' | 'alphabetical' = 'category',
 ) {
   return async (
     spreadsheet: ReturnType<typeof useSpreadsheet>,
@@ -120,9 +122,12 @@ export function createSpreadsheet(
     if (mode === 'budgeted') {
       const data = await createBudgetSpreadsheet(
         start,
+        end,
         categories,
         conditions,
         conditionsOp,
+        grouped,
+        sortBy,
       )(spreadsheet, setData);
       return data;
     } else if (mode === 'spent') {
@@ -132,6 +137,8 @@ export function createSpreadsheet(
         categories,
         conditions,
         conditionsOp,
+        grouped,
+        sortBy,
       )(spreadsheet, setData);
       return data;
     } else {
@@ -142,6 +149,8 @@ export function createSpreadsheet(
         categories,
         conditions,
         conditionsOp,
+        grouped,
+        sortBy,
       )(spreadsheet, setData);
       return data;
     }
@@ -150,9 +159,12 @@ export function createSpreadsheet(
 
 export function createBudgetSpreadsheet(
   start: string,
+  end: string,
   categories: CategoryGroupEntity[],
   conditions: RuleConditionEntity[] = [],
   conditionsOp: 'and' | 'or' = 'and',
+  grouped: boolean = true,
+  sortBy: 'category' | 'value' | 'alphabetical' = 'category',
 ) {
   return async (
     spreadsheet: ReturnType<typeof useSpreadsheet>,
@@ -166,61 +178,93 @@ export function createBudgetSpreadsheet(
       toBudget: number;
     };
 
-    const {
-      categoryGroups,
-      totalIncome: _totalIncome,
-      fromLastMonth,
-      forNextMonth,
-      toBudget,
-    } = (await send('api/budget-month', {
-      month: start,
-    })) as unknown as BudgetMonthResponse;
+    // Get all months in the range
+    const months = monthUtils.rangeInclusive(start, end);
 
-    // Apply filters to category groups
-    const filteredCategoryGroups = await filterCategoryGroups(
-      categoryGroups,
-      conditions,
-      conditionsOp,
-      categories,
+    // Fetch budget data for all months
+    const monthlyData = await Promise.all(
+      months.map(async month => {
+        const response = (await send('api/budget-month', {
+          month,
+        })) as unknown as BudgetMonthResponse;
+        return { month, ...response };
+      }),
     );
 
-    // Build income data from income category groups
-    const incomeGroups = filteredCategoryGroups.filter(
-      group => group.is_income === true,
-    );
-    const incomeData = incomeGroups.reduce<Record<string, number>>(
-      (acc, group) => {
-        acc[group.name] = group.categories.reduce((categorySum, cat) => {
-          return categorySum + (cat.received ?? 0);
-        }, 0);
-        return acc;
-      },
-      {},
-    );
+    // Aggregate data across all months
+    const aggregatedIncomeData: Record<string, number> = {};
+    const aggregatedCategoryData: Record<string, Record<string, number>> = {};
+    let totalFromLastMonth = 0;
+    let totalForNextMonth = 0;
+    let totalToBudget = 0;
 
-    if (fromLastMonth > 0) {
-      incomeData['From Last Month'] = fromLastMonth;
+    for (const data of monthlyData) {
+      const filteredCategoryGroups = await filterCategoryGroups(
+        data.categoryGroups,
+        conditions,
+        conditionsOp,
+        categories,
+      );
+
+      // Aggregate income data
+      const incomeGroups = filteredCategoryGroups.filter(
+        group => group.is_income === true,
+      );
+      for (const group of incomeGroups) {
+        for (const cat of group.categories) {
+          aggregatedIncomeData[group.name] =
+            (aggregatedIncomeData[group.name] ?? 0) + (cat.received ?? 0);
+        }
+      }
+
+      // Aggregate expense data
+      const expenseGroups = filteredCategoryGroups.filter(
+        group => group.is_income !== true,
+      );
+      for (const group of expenseGroups) {
+        if (!aggregatedCategoryData[group.name]) {
+          aggregatedCategoryData[group.name] = {};
+        }
+        for (const cat of group.categories) {
+          aggregatedCategoryData[group.name][cat.name] =
+            (aggregatedCategoryData[group.name][cat.name] ?? 0) +
+            (cat.budgeted ?? 0);
+        }
+      }
+
+      // Only count fromLastMonth for the first month
+      if (data.month === start && data.fromLastMonth > 0) {
+        totalFromLastMonth = data.fromLastMonth;
+      }
+      // Only count forNextMonth for the last month
+      if (data.month === end && data.forNextMonth > 0) {
+        totalForNextMonth = data.forNextMonth;
+      }
+      totalToBudget += data.toBudget;
     }
 
-    // Build expense category data using budgeted amounts from the budget month
-    const expenseGroups = filteredCategoryGroups.filter(
-      group => group.is_income !== true,
-    );
-    const categoryData = expenseGroups.map(group => ({
-      name: group.name,
-      balances: group.categories.map(cat => ({
-        subcategory: cat.name,
-        value: cat.budgeted ?? 0,
-      })),
-    }));
+    if (totalFromLastMonth > 0) {
+      aggregatedIncomeData['From Last Month'] = totalFromLastMonth;
+    }
 
-    if (forNextMonth > 0) {
+    // Convert aggregated data to the expected format
+    const categoryData = Object.entries(aggregatedCategoryData).map(
+      ([groupName, subcategories]) => ({
+        name: groupName,
+        balances: Object.entries(subcategories).map(([subcatName, value]) => ({
+          subcategory: subcatName,
+          value,
+        })),
+      }),
+    );
+
+    if (totalForNextMonth > 0) {
       categoryData.push({
         name: 'For Next Month',
         balances: [
           {
             subcategory: 'For Next Month',
-            value: forNextMonth,
+            value: totalForNextMonth,
           },
         ],
       });
@@ -229,9 +273,11 @@ export function createBudgetSpreadsheet(
     setData(
       transformToSankeyData(
         categoryData,
-        incomeData,
-        toBudget,
+        aggregatedIncomeData,
+        totalToBudget,
         'Available Funds',
+        grouped,
+        sortBy,
       ),
     );
   };
@@ -243,6 +289,8 @@ export function createTransactionsSpreadsheet(
   categories: CategoryGroupEntity[],
   conditions: RuleConditionEntity[] = [],
   conditionsOp: 'and' | 'or' = 'and',
+  grouped: boolean = true,
+  sortBy: 'category' | 'value' | 'alphabetical' = 'category',
 ) {
   return async (
     spreadsheet: ReturnType<typeof useSpreadsheet>,
@@ -363,7 +411,16 @@ export function createTransactionsSpreadsheet(
     const categoryData = await fetchCategoryData(categories);
 
     // convert retrieved data into the proper sankey format
-    setData(transformToSankeyData(categoryData, incomeData, 0, 'Spent'));
+    setData(
+      transformToSankeyData(
+        categoryData,
+        incomeData,
+        0,
+        'Spent',
+        grouped,
+        sortBy,
+      ),
+    );
   };
 }
 
@@ -373,6 +430,8 @@ export function createDifferenceSpreadsheet(
   categories: CategoryGroupEntity[],
   conditions: RuleConditionEntity[] = [],
   conditionsOp: 'and' | 'or' = 'and',
+  grouped: boolean = true,
+  sortBy: 'category' | 'value' | 'alphabetical' = 'category',
 ) {
   return async (
     spreadsheet: ReturnType<typeof useSpreadsheet>,
@@ -386,38 +445,66 @@ export function createDifferenceSpreadsheet(
       toBudget: number;
     };
 
-    // Fetch budgeted data
-    const {
-      categoryGroups,
-      totalIncome: _totalIncome,
-      fromLastMonth,
-      forNextMonth: _forNextMonth,
-    } = (await send('api/budget-month', {
-      month: start,
-    })) as unknown as BudgetMonthResponse;
+    // Get all months in the range
+    const months = monthUtils.rangeInclusive(start, end);
 
-    // Apply filters to category groups
-    const filteredCategoryGroups = await filterCategoryGroups(
-      categoryGroups,
-      conditions,
-      conditionsOp,
-      categories,
+    // Fetch budget data for all months
+    const monthlyData = await Promise.all(
+      months.map(async month => {
+        const response = (await send('api/budget-month', {
+          month,
+        })) as unknown as BudgetMonthResponse;
+        return { month, ...response };
+      }),
     );
 
+    // Aggregate budgeted data across all months
     const budgetedData: Record<string, { budgeted: number; name: string }> = {};
     const categoryGroupMap: Record<string, string> = {};
+    const incomeData: Record<string, number> = {};
+    let totalFromLastMonth = 0;
 
-    filteredCategoryGroups.forEach(group => {
-      if (!group.is_income) {
-        group.categories.forEach(cat => {
-          budgetedData[cat.id] = {
-            budgeted: cat.budgeted || 0,
-            name: cat.name,
-          };
-          categoryGroupMap[cat.id] = group.name;
-        });
+    for (const data of monthlyData) {
+      // Apply filters to category groups
+      const filteredCategoryGroups = await filterCategoryGroups(
+        data.categoryGroups,
+        conditions,
+        conditionsOp,
+        categories,
+      );
+
+      // Aggregate income data
+      const incomeGroups = filteredCategoryGroups.filter(
+        group => group.is_income === true,
+      );
+      for (const group of incomeGroups) {
+        for (const cat of group.categories) {
+          incomeData[cat.name] =
+            (incomeData[cat.name] ?? 0) + (cat.received ?? 0);
+        }
       }
-    });
+
+      // Aggregate expense budgets
+      filteredCategoryGroups.forEach(group => {
+        if (!group.is_income) {
+          group.categories.forEach(cat => {
+            if (!budgetedData[cat.id]) {
+              budgetedData[cat.id] = {
+                budgeted: 0,
+                name: cat.name,
+              };
+              categoryGroupMap[cat.id] = group.name;
+            }
+            budgetedData[cat.id].budgeted += cat.budgeted || 0;
+          });
+        }
+      });
+
+      // Only count fromLastMonth for the first month
+      if (data.month === start && data.fromLastMonth > 0) {
+        totalFromLastMonth = data.fromLastMonth;
+      }
+    }
 
     // Fetch spent data using transactions
     const { filters } = await send('make-filters-from-conditions', {
@@ -425,14 +512,11 @@ export function createDifferenceSpreadsheet(
     });
     const conditionsOpKey = conditionsOp === 'or' ? '$or' : '$and';
 
-    // Use filtered categories instead of all categories
-    // Only get expense categories (non-income)
-    const filteredExpenseCategories = filteredCategoryGroups
-      .filter(group => !group.is_income)
-      .flatMap(group => group.categories);
+    // Get category IDs from aggregated budget data
+    const categoryIds = Object.keys(budgetedData);
 
     async function fetchSpentData() {
-      const promises = filteredExpenseCategories.map(subcategory => {
+      const promises = categoryIds.map(catId => {
         return aqlQuery(
           q('transactions')
             .filter({
@@ -444,7 +528,7 @@ export function createDifferenceSpreadsheet(
                 { date: { $lte: monthUtils.lastDayOfMonth(end) } },
               ],
             })
-            .filter({ category: subcategory.id })
+            .filter({ category: catId })
             .calculate({ $sum: '$amount' }),
         );
       });
@@ -452,8 +536,8 @@ export function createDifferenceSpreadsheet(
       const results = await Promise.all(promises);
       const spentData: Record<string, number> = {};
 
-      filteredExpenseCategories.forEach((subcategory, index) => {
-        spentData[subcategory.id] = Math.abs(results[index].data || 0);
+      categoryIds.forEach((catId, index) => {
+        spentData[catId] = Math.abs(results[index].data || 0);
       });
 
       return spentData;
@@ -467,6 +551,7 @@ export function createDifferenceSpreadsheet(
       groupName: string;
       difference: number;
       isNegative: boolean;
+      isUnderspent: boolean;
     }> = [];
 
     Object.keys(budgetedData).forEach(catId => {
@@ -480,6 +565,7 @@ export function createDifferenceSpreadsheet(
         groupName: categoryGroupMap[catId],
         difference,
         isNegative: difference < 0,
+        isUnderspent: difference > 0,
       });
     });
 
@@ -490,6 +576,7 @@ export function createDifferenceSpreadsheet(
         subcategory: string;
         value: number;
         isNegative?: boolean;
+        isUnderspent?: boolean;
         actualValue?: number;
       }>;
     }> = [];
@@ -500,6 +587,7 @@ export function createDifferenceSpreadsheet(
         subcategory: string;
         value: number;
         isNegative?: boolean;
+        isUnderspent?: boolean;
         actualValue?: number;
       }>
     >();
@@ -512,6 +600,7 @@ export function createDifferenceSpreadsheet(
         subcategory: item.name,
         value: Math.abs(item.difference),
         isNegative: item.isNegative,
+        isUnderspent: item.isUnderspent,
         actualValue: item.difference, // Store the actual value for display
       });
     });
@@ -523,25 +612,21 @@ export function createDifferenceSpreadsheet(
       });
     });
 
-    // Fetch income data for the income side
-    const incomeCategories = filteredCategoryGroups
-      .filter(group => group.is_income)
-      .flatMap(group => group.categories);
-
-    const incomeData: Record<string, number> = {};
-    incomeCategories.forEach(cat => {
-      if (cat.received && cat.received > 0) {
-        incomeData[cat.name] = cat.received;
-      }
-    });
-
-    if (fromLastMonth > 0) {
-      incomeData['From Last Month'] = fromLastMonth;
+    // Add "From Last Month" to income data if applicable
+    if (totalFromLastMonth > 0) {
+      incomeData['From Last Month'] = totalFromLastMonth;
     }
 
     // convert retrieved data into the proper sankey format
     setData(
-      transformToSankeyData(groupedData, incomeData, 0, 'Available Funds'),
+      transformToSankeyData(
+        groupedData,
+        incomeData,
+        0,
+        'Available Funds',
+        grouped,
+        sortBy,
+      ),
     );
   };
 }
@@ -551,9 +636,44 @@ function transformToSankeyData(
   incomeData,
   toBudgetAmount = 0,
   rootNodeName = 'Available Funds',
+  grouped = true,
+  sortBy: 'category' | 'value' | 'alphabetical' = 'category',
 ) {
   const data = { nodes: [], links: [] };
   const nodeNames = new Set();
+  let groupColorIndex = 0; // Counter for category groups (or categories in flat mode)
+
+  // Sort helper function
+  const sortByName = (a, b) => a.name.localeCompare(b.name);
+
+  // Separate "For Next Month" from regular categories - it should always be at the end
+  const forNextMonth = categoryData.find(cat => cat.name === 'For Next Month');
+  const regularCategories = categoryData.filter(
+    cat => cat.name !== 'For Next Month',
+  );
+
+  // Sort category data based on sortBy option
+  let sortedCategoryData = [...regularCategories];
+  if (sortBy === 'value') {
+    // Calculate total value for each category group for sorting
+    sortedCategoryData = sortedCategoryData
+      .map(cat => ({
+        ...cat,
+        totalValue: cat.balances.reduce(
+          (sum, sub) => sum + (sub.value > 0 ? sub.value : 0),
+          0,
+        ),
+      }))
+      .sort((a, b) => b.totalValue - a.totalValue);
+  } else if (sortBy === 'alphabetical') {
+    sortedCategoryData = sortedCategoryData.sort(sortByName);
+  }
+  // 'category' keeps original order
+
+  // Add "For Next Month" back at the end if it exists
+  if (forNextMonth) {
+    sortedCategoryData.push(forNextMonth);
+  }
 
   // Add the root node first with toBudget metadata
   data.nodes.push({
@@ -563,8 +683,18 @@ function transformToSankeyData(
   });
   nodeNames.add(rootNodeName);
 
+  // Sort income data based on sortBy option
+  let incomeEntries = Object.entries(incomeData);
+  if (sortBy === 'value') {
+    incomeEntries = incomeEntries.sort(
+      (a, b) => (b[1] as number) - (a[1] as number),
+    );
+  } else if (sortBy === 'alphabetical') {
+    incomeEntries = incomeEntries.sort((a, b) => a[0].localeCompare(b[0]));
+  }
+
   // Handle the income sources and link them to the Budget node.
-  Object.entries(incomeData).forEach(([sourceName, value]) => {
+  incomeEntries.forEach(([sourceName, value]) => {
     if (!nodeNames.has(sourceName) && (value as number) > 0) {
       data.nodes.push({
         name: sourceName,
@@ -580,8 +710,8 @@ function transformToSankeyData(
   });
 
   // add all category expenses that have valid subcategories and a balance
-  for (const mainCategory of categoryData) {
-    if (!nodeNames.has(mainCategory.name) && mainCategory.balances.length > 0) {
+  for (const mainCategory of sortedCategoryData) {
+    if (mainCategory.balances.length > 0) {
       let mainCategorySum = 0;
       for (const subCategory of mainCategory.balances) {
         if (!nodeNames.has(subCategory.subcategory) && subCategory.value > 0) {
@@ -592,35 +722,117 @@ function transformToSankeyData(
         continue;
       }
 
-      data.nodes.push({
-        name: mainCategory.name,
-        nodeType: 'expense',
-      });
-      nodeNames.add(mainCategory.name);
+      if (grouped) {
+        // Grouped mode: category group and its children share the same color
+        const currentGroupColor = groupColorIndex++;
 
-      data.links.push({
-        source: rootNodeName,
-        target: mainCategory.name,
-        value: mainCategorySum,
-      });
-
-      // add the subcategories of the main category
-      for (const subCategory of mainCategory.balances) {
-        if (!nodeNames.has(subCategory.subcategory) && subCategory.value > 0) {
+        if (!nodeNames.has(mainCategory.name)) {
           data.nodes.push({
-            name: subCategory.subcategory,
+            name: mainCategory.name,
             nodeType: 'expense',
-            isNegative: subCategory.isNegative,
+            colorIndex: currentGroupColor,
           });
-          nodeNames.add(subCategory.subcategory);
+          nodeNames.add(mainCategory.name);
 
           data.links.push({
-            source: mainCategory.name,
-            target: subCategory.subcategory,
-            value: subCategory.value,
-            isNegative: subCategory.isNegative,
+            source: rootNodeName,
+            target: mainCategory.name,
+            value: mainCategorySum,
           });
         }
+
+        // Sort subcategories based on sortBy option
+        let sortedBalances = [...mainCategory.balances];
+        if (sortBy === 'value') {
+          sortedBalances = sortedBalances.sort((a, b) => b.value - a.value);
+        } else if (sortBy === 'alphabetical') {
+          sortedBalances = sortedBalances.sort((a, b) =>
+            a.subcategory.localeCompare(b.subcategory),
+          );
+        }
+
+        // Subcategories inherit the parent group's color
+        for (const subCategory of sortedBalances) {
+          if (
+            !nodeNames.has(subCategory.subcategory) &&
+            subCategory.value > 0
+          ) {
+            data.nodes.push({
+              name: subCategory.subcategory,
+              nodeType: 'expense',
+              isNegative: subCategory.isNegative,
+              isUnderspent: subCategory.isUnderspent,
+              colorIndex: currentGroupColor, // Same color as parent group
+            });
+            nodeNames.add(subCategory.subcategory);
+
+            data.links.push({
+              source: mainCategory.name,
+              target: subCategory.subcategory,
+              value: subCategory.value,
+              isNegative: subCategory.isNegative,
+              isUnderspent: subCategory.isUnderspent,
+            });
+          }
+        }
+      } else {
+        // Flat mode: collect all subcategories first, then sort and add
+        const allSubcategories = [];
+        let forNextMonthSubcat = null;
+        for (const cat of sortedCategoryData) {
+          for (const subCategory of cat.balances) {
+            if (
+              !nodeNames.has(subCategory.subcategory) &&
+              subCategory.value > 0
+            ) {
+              // Keep "For Next Month" separate - it should always be at the end
+              if (subCategory.subcategory === 'For Next Month') {
+                forNextMonthSubcat = subCategory;
+              } else {
+                allSubcategories.push(subCategory);
+              }
+            }
+          }
+        }
+
+        // Sort all subcategories based on sortBy option
+        if (sortBy === 'value') {
+          allSubcategories.sort((a, b) => b.value - a.value);
+        } else if (sortBy === 'alphabetical') {
+          allSubcategories.sort((a, b) =>
+            a.subcategory.localeCompare(b.subcategory),
+          );
+        }
+
+        // Add "For Next Month" at the end if it exists
+        if (forNextMonthSubcat) {
+          allSubcategories.push(forNextMonthSubcat);
+        }
+
+        // Add sorted subcategories
+        for (const subCategory of allSubcategories) {
+          if (!nodeNames.has(subCategory.subcategory)) {
+            data.nodes.push({
+              name: subCategory.subcategory,
+              nodeType: 'expense',
+              isNegative: subCategory.isNegative,
+              isUnderspent: subCategory.isUnderspent,
+              colorIndex: groupColorIndex++,
+            });
+            nodeNames.add(subCategory.subcategory);
+
+            data.links.push({
+              source: rootNodeName,
+              target: subCategory.subcategory,
+              value: subCategory.value,
+              isNegative: subCategory.isNegative,
+              isUnderspent: subCategory.isUnderspent,
+            });
+          }
+        }
+
+        // Skip the rest of the loop since we handled all flat categories
+        break;
       }
     }
   }

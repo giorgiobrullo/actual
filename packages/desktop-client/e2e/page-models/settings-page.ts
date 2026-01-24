@@ -42,17 +42,22 @@ export class SettingsPage {
   }
 
   async enableExperimentalFeature(featureName: string) {
+    // Scroll down to find the advanced settings button and click it
+    await this.advancedSettingsButton.scrollIntoViewIfNeeded();
     if (await this.advancedSettingsButton.isVisible()) {
       await this.advancedSettingsButton.click();
     }
 
-    if (await this.experimentalSettingsButton.isVisible()) {
-      await this.experimentalSettingsButton.click();
-    }
+    // Wait for and click the experimental settings button
+    await this.experimentalSettingsButton.waitFor({ state: 'visible' });
+    await this.experimentalSettingsButton.scrollIntoViewIfNeeded();
+    await this.experimentalSettingsButton.click();
 
+    // Wait for the checkbox to appear and check it if not already checked
     const featureCheckbox = this.page.getByRole('checkbox', {
       name: featureName,
     });
+    await featureCheckbox.waitFor({ state: 'visible' });
     if (!(await featureCheckbox.isChecked())) {
       await featureCheckbox.click();
     }

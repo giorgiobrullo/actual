@@ -41,6 +41,9 @@ export function SankeyCard({
 
   const [start, end] = calculateTimeRange(meta?.timeFrame);
   const mode = meta?.mode ?? 'budgeted';
+  const compact = meta?.compact ?? true;
+  const grouped = meta?.grouped ?? true;
+  const sortBy = meta?.sortBy ?? 'category';
 
   const params = useMemo(
     () =>
@@ -51,6 +54,8 @@ export function SankeyCard({
         meta?.conditions ?? [],
         meta?.conditionsOp ?? 'and',
         mode,
+        grouped,
+        sortBy,
       ),
     [
       start,
@@ -59,6 +64,8 @@ export function SankeyCard({
       meta?.conditions,
       meta?.conditionsOp,
       mode,
+      grouped,
+      sortBy,
     ],
   );
   const data = useReport('sankey', params);
@@ -115,7 +122,7 @@ export function SankeyCard({
         </View>
 
         {data ? (
-          <SankeyGraph data={data} compact showTooltip={!isEditing} />
+          <SankeyGraph data={data} compact={compact} showTooltip={!isEditing} />
         ) : (
           <LoadingIndicator />
         )}

@@ -5,12 +5,9 @@ import { useParams } from 'react-router';
 import { Button } from '@actual-app/components/button';
 import { useResponsive } from '@actual-app/components/hooks/useResponsive';
 import { Paragraph } from '@actual-app/components/paragraph';
-import { Select } from '@actual-app/components/select';
 import { SpaceBetween } from '@actual-app/components/space-between';
-import { styles } from '@actual-app/components/styles';
 import { Text } from '@actual-app/components/text';
 import { theme } from '@actual-app/components/theme';
-import { Tooltip } from '@actual-app/components/tooltip';
 import { View } from '@actual-app/components/view';
 import * as d from 'date-fns';
 import { type SankeyData } from 'recharts/types/chart/Sankey';
@@ -20,11 +17,10 @@ import * as monthUtils from 'loot-core/shared/months';
 import {
   type SankeyWidget,
   type RuleConditionEntity,
+  type TimeFrame,
 } from 'loot-core/types/models';
 
 import { EditablePageHeaderTitle } from '@desktop-client/components/EditablePageHeaderTitle';
-import { AppliedFilters } from '@desktop-client/components/filters/AppliedFilters';
-import { FilterButton } from '@desktop-client/components/filters/FiltersMenu';
 import { MobileBackButton } from '@desktop-client/components/mobile/MobileBackButton';
 import {
   MobilePageHeader,
@@ -32,8 +28,10 @@ import {
   PageHeader,
 } from '@desktop-client/components/Page';
 import { SankeyGraph } from '@desktop-client/components/reports/graphs/SankeyGraph';
+import { Header } from '@desktop-client/components/reports/Header';
 import { LoadingIndicator } from '@desktop-client/components/reports/LoadingIndicator';
 import { ModeButton } from '@desktop-client/components/reports/ModeButton';
+import { calculateTimeRange } from '@desktop-client/components/reports/reportRanges';
 import { createSpreadsheet as sankeySpreadsheet } from '@desktop-client/components/reports/spreadsheets/sankey-spreadsheet';
 import { useReport } from '@desktop-client/components/reports/useReport';
 import { fromDateRepr } from '@desktop-client/components/reports/util';
@@ -62,6 +60,7 @@ export function Sankey() {
 type SankeyInnerProps = {
   widget?: SankeyWidget;
 };
+
 function SankeyInner({ widget }: SankeyInnerProps) {
   const locale = useLocale();
   const dispatch = useDispatch();
@@ -81,16 +80,28 @@ function SankeyInner({ widget }: SankeyInnerProps) {
     widget?.meta?.conditionsOp,
   );
 
-  const emptyMonths: { name: string; pretty: string }[] = [];
-  const [allMonths, setAllMonths] = useState(emptyMonths);
+  const [allMonths, setAllMonths] = useState<Array<{
+    name: string;
+    pretty: string;
+  }> | null>(null);
 
-  const initialMonth =
-    widget?.meta?.timeFrame?.start ?? monthUtils.currentMonth();
-  const [selectedMonth, setSelectedMonth] = useState(initialMonth);
+  const [start, setStart] = useState(monthUtils.currentMonth());
+  const [end, setEnd] = useState(monthUtils.currentMonth());
+  const [timeFrameMode, setTimeFrameMode] =
+    useState<TimeFrame['mode']>('sliding-window');
+
+  const [earliestTransaction, setEarliestTransaction] = useState('');
+  const [latestTransaction, setLatestTransaction] = useState('');
 
   const initialMode = widget?.meta?.mode ?? 'budgeted';
   const [mode, setMode] = useState<'budgeted' | 'spent' | 'difference'>(
     initialMode,
+  );
+
+  const [compact, setCompact] = useState(widget?.meta?.compact ?? true);
+  const [grouped, setGrouped] = useState(widget?.meta?.grouped ?? true);
+  const [sortBy, setSortBy] = useState<'category' | 'value' | 'alphabetical'>(
+    widget?.meta?.sortBy ?? 'category',
   );
 
   const categories = useCategories();
@@ -98,14 +109,16 @@ function SankeyInner({ widget }: SankeyInnerProps) {
   const reportParams = useMemo(
     () =>
       sankeySpreadsheet(
-        selectedMonth,
-        selectedMonth,
+        start,
+        end,
         categories.grouped,
         conditions,
         conditionsOp,
         mode,
+        grouped,
+        sortBy,
       ),
-    [selectedMonth, categories, conditions, conditionsOp, mode],
+    [start, end, categories, conditions, conditionsOp, mode, grouped, sortBy],
   );
   const data = useReport('sankey', reportParams);
 
@@ -113,6 +126,13 @@ function SankeyInner({ widget }: SankeyInnerProps) {
     async function run() {
       const earliestTrans = await send('get-earliest-transaction');
       const latestTrans = await send('get-latest-transaction');
+
+      setEarliestTransaction(
+        earliestTrans ? earliestTrans.date : monthUtils.currentDay(),
+      );
+      setLatestTransaction(
+        latestTrans ? latestTrans.date : monthUtils.currentDay(),
+      );
 
       const currentMonth = monthUtils.currentMonth();
       let earliestMonth = earliestTrans
@@ -127,9 +147,6 @@ function SankeyInner({ widget }: SankeyInnerProps) {
           ? latestTransactionMonth
           : currentMonth;
 
-      // Make sure the month selects are at least populated with a
-      // year's worth of months. We can undo this when we have fancier
-      // date selects.
       const yearAgo = monthUtils.subMonths(latestMonth, 12);
       if (earliestMonth > yearAgo) {
         earliestMonth = yearAgo;
@@ -148,6 +165,25 @@ function SankeyInner({ widget }: SankeyInnerProps) {
     run();
   }, [locale]);
 
+  useEffect(() => {
+    if (latestTransaction) {
+      const [initialStart, initialEnd, initialMode] = calculateTimeRange(
+        widget?.meta?.timeFrame,
+        undefined,
+        latestTransaction,
+      );
+      setStart(initialStart);
+      setEnd(initialEnd);
+      setTimeFrameMode(initialMode);
+    }
+  }, [latestTransaction, widget?.meta?.timeFrame]);
+
+  function onChangeDates(start: string, end: string, mode: TimeFrame['mode']) {
+    setStart(start);
+    setEnd(end);
+    setTimeFrameMode(mode);
+  }
+
   async function onSaveWidget() {
     if (!widget) {
       throw new Error('No widget that could be saved.');
@@ -160,10 +196,13 @@ function SankeyInner({ widget }: SankeyInnerProps) {
         conditions,
         conditionsOp,
         mode,
+        compact,
+        grouped,
+        sortBy,
         timeFrame: {
-          start: selectedMonth,
-          end: selectedMonth,
-          mode: 'static',
+          start,
+          end,
+          mode: timeFrameMode,
         },
       },
     });
@@ -194,7 +233,7 @@ function SankeyInner({ widget }: SankeyInnerProps) {
 
   const title = widget?.meta?.name || t('Sankey');
 
-  if (!data) {
+  if (!allMonths || !data) {
     return null;
   }
 
@@ -225,152 +264,179 @@ function SankeyInner({ widget }: SankeyInnerProps) {
       }
       padding={0}
     >
-      <View
-        style={{
-          paddingLeft: 20,
-          paddingRight: 20,
-          paddingTop: 15,
-          paddingBottom: 20,
-          flexShrink: 0,
-        }}
-      >
-        {!isNarrowWidth && (
-          <SpaceBetween gap={0}>
-            <SpaceBetween gap={5}>
-              <Text>
-                <Trans>Month</Trans>
-              </Text>
-              <Select
-                value={selectedMonth}
-                onChange={setSelectedMonth}
-                options={allMonths.map(
-                  ({ name, pretty }) => [name, pretty] as const,
-                )}
-                style={{ width: 150 }}
-                popoverStyle={{ width: 150 }}
-              />
-            </SpaceBetween>
-
+      <Header
+        allMonths={allMonths}
+        start={start}
+        end={end}
+        earliestTransaction={earliestTransaction}
+        latestTransaction={latestTransaction}
+        mode={timeFrameMode}
+        onChangeDates={onChangeDates}
+        filters={conditions}
+        onApply={onApplyFilter}
+        onUpdateFilter={onUpdateFilter}
+        onDeleteFilter={onDeleteFilter}
+        conditionsOp={conditionsOp}
+        onConditionsOpChange={onConditionsOpChange}
+        show1Month
+        inlineContent={
+          !isNarrowWidth && (
             <View
-              style={{
-                width: 1,
-                height: 28,
-                backgroundColor: theme.pillBorderDark,
-                marginRight: 10,
-                marginLeft: 10,
-              }}
-            />
-
-            <SpaceBetween gap={5}>
-              <ModeButton
-                selected={mode === 'budgeted'}
-                onSelect={() => {
-                  setMode('budgeted');
-                }}
-                style={{
-                  backgroundColor: 'inherit',
-                }}
-              >
-                <Trans>Budgeted</Trans>
-              </ModeButton>
-              <ModeButton
-                selected={mode === 'spent'}
-                style={{
-                  backgroundColor: 'inherit',
-                }}
-                onSelect={() => {
-                  setMode('spent');
-                }}
-              >
-                <Trans>Spent</Trans>
-              </ModeButton>
-              <ModeButton
-                selected={mode === 'difference'}
-                style={{
-                  backgroundColor: 'inherit',
-                }}
-                onSelect={() => {
-                  setMode('difference');
-                }}
-              >
-                <Trans>Difference</Trans>
-              </ModeButton>
-            </SpaceBetween>
-
-            <View
-              style={{
-                width: 1,
-                height: 28,
-                backgroundColor: theme.pillBorderDark,
-                marginRight: 10,
-                marginLeft: 10,
-              }}
-            />
-
-            <View
-              style={{
-                alignItems: 'center',
-                flexDirection: 'row',
-                flex: 1,
-              }}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}
             >
-              <FilterButton
-                onApply={onApplyFilter}
-                compact={isNarrowWidth}
-                hover={false}
-                exclude={['date']}
-              />
-              <View style={{ flex: 1 }} />
-
-              {widget && (
-                <Tooltip
-                  placement="top end"
-                  content={
-                    <Text>
-                      <Trans>Save month and filter options</Trans>
-                    </Text>
-                  }
-                  style={{
-                    ...styles.tooltip,
-                    lineHeight: 1.5,
-                    padding: '6px 10px',
-                    marginLeft: 10,
-                  }}
-                >
-                  <Button
-                    variant="primary"
-                    style={{
-                      marginLeft: 10,
-                    }}
-                    onPress={onSaveWidget}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <Text style={{ fontWeight: 500, color: theme.pageText }}>
+                  <Trans>Show as</Trans>
+                </Text>
+                <SpaceBetween gap={5}>
+                  <ModeButton
+                    selected={mode === 'budgeted'}
+                    onSelect={() => setMode('budgeted')}
+                    style={{ backgroundColor: 'inherit' }}
                   >
-                    <Trans>Save</Trans>
-                  </Button>
-                </Tooltip>
-              )}
+                    <Trans>Budgeted</Trans>
+                  </ModeButton>
+                  <ModeButton
+                    selected={mode === 'spent'}
+                    style={{ backgroundColor: 'inherit' }}
+                    onSelect={() => setMode('spent')}
+                  >
+                    <Trans>Spent</Trans>
+                  </ModeButton>
+                  <ModeButton
+                    selected={mode === 'difference'}
+                    style={{ backgroundColor: 'inherit' }}
+                    onSelect={() => setMode('difference')}
+                  >
+                    <Trans>Difference</Trans>
+                  </ModeButton>
+                </SpaceBetween>
+              </View>
+              <View
+                style={{
+                  width: 1,
+                  height: 20,
+                  backgroundColor: theme.tableBorder,
+                }}
+              />
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <Text style={{ fontWeight: 500, color: theme.pageText }}>
+                  <Trans>Categories</Trans>
+                </Text>
+                <SpaceBetween gap={5}>
+                  <ModeButton
+                    selected={grouped}
+                    onSelect={() => setGrouped(true)}
+                    style={{ backgroundColor: 'inherit' }}
+                  >
+                    <Trans>Grouped</Trans>
+                  </ModeButton>
+                  <ModeButton
+                    selected={!grouped}
+                    onSelect={() => setGrouped(false)}
+                    style={{ backgroundColor: 'inherit' }}
+                  >
+                    <Trans>Flat</Trans>
+                  </ModeButton>
+                </SpaceBetween>
+              </View>
+              <View
+                style={{
+                  width: 1,
+                  height: 20,
+                  backgroundColor: theme.tableBorder,
+                }}
+              />
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <Text style={{ fontWeight: 500, color: theme.pageText }}>
+                  <Trans>Card view</Trans>
+                </Text>
+                <SpaceBetween gap={5}>
+                  <ModeButton
+                    selected={compact}
+                    onSelect={() => setCompact(true)}
+                    style={{ backgroundColor: 'inherit' }}
+                  >
+                    <Trans>Compact</Trans>
+                  </ModeButton>
+                  <ModeButton
+                    selected={!compact}
+                    onSelect={() => setCompact(false)}
+                    style={{ backgroundColor: 'inherit' }}
+                  >
+                    <Trans>Full</Trans>
+                  </ModeButton>
+                </SpaceBetween>
+              </View>
+              <View
+                style={{
+                  width: 1,
+                  height: 20,
+                  backgroundColor: theme.tableBorder,
+                }}
+              />
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <Text style={{ fontWeight: 500, color: theme.pageText }}>
+                  <Trans>Sort</Trans>
+                </Text>
+                <SpaceBetween gap={5}>
+                  <ModeButton
+                    selected={sortBy === 'category'}
+                    onSelect={() => setSortBy('category')}
+                    style={{ backgroundColor: 'inherit' }}
+                  >
+                    <Trans>Category</Trans>
+                  </ModeButton>
+                  <ModeButton
+                    selected={sortBy === 'value'}
+                    onSelect={() => setSortBy('value')}
+                    style={{ backgroundColor: 'inherit' }}
+                  >
+                    <Trans>Value</Trans>
+                  </ModeButton>
+                  <ModeButton
+                    selected={sortBy === 'alphabetical'}
+                    onSelect={() => setSortBy('alphabetical')}
+                    style={{ backgroundColor: 'inherit' }}
+                  >
+                    <Trans>A-Z</Trans>
+                  </ModeButton>
+                </SpaceBetween>
+              </View>
             </View>
-          </SpaceBetween>
+          )
+        }
+      >
+        {widget && (
+          <Button variant="primary" onPress={onSaveWidget}>
+            <Trans>Save widget</Trans>
+          </Button>
         )}
-
-        {conditions && conditions.length > 0 && (
-          <View
-            style={{
-              marginTop: 5,
-              flexShrink: 0,
-              flexDirection: 'row',
-              spacing: 2,
-            }}
-          >
-            <AppliedFilters
-              conditions={conditions}
-              onUpdate={onUpdateFilter}
-              onDelete={onDeleteFilter}
-              conditionsOp={conditionsOp}
-              onConditionsOpChange={onConditionsOpChange}
-            />
-          </View>
-        )}
-      </View>
+      </Header>
 
       <View
         style={{
@@ -406,6 +472,7 @@ function SankeyInner({ widget }: SankeyInnerProps) {
                 <SankeyGraph
                   style={{ flexGrow: 1 }}
                   data={data as SankeyData}
+                  compact={compact}
                 />
               ) : (
                 <View
@@ -413,26 +480,27 @@ function SankeyInner({ widget }: SankeyInnerProps) {
                     flexGrow: 1,
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: theme.pageTextSubdued,
+                    color: theme.pageText,
                   }}
                 >
                   <Text style={{ fontSize: 16, textAlign: 'center' }}>
                     {mode === 'budgeted' && (
                       <Trans>
-                        No data available for this month. Try budgeting
-                        categories or selecting a different month.
+                        No data available for this period. Try budgeting
+                        categories or selecting a different date range.
                       </Trans>
                     )}
                     {mode === 'spent' && (
                       <Trans>
-                        No data available for this month. Try adding
-                        transactions or selecting a different month.
+                        No data available for this period. Try adding
+                        transactions or selecting a different date range.
                       </Trans>
                     )}
                     {mode === 'difference' && (
                       <Trans>
-                        No data available for this month. Try budgeting or
-                        adding transactions, or selecting a different month.
+                        No data available for this period. Try budgeting or
+                        adding transactions, or selecting a different date
+                        range.
                       </Trans>
                     )}
                   </Text>
@@ -463,8 +531,8 @@ function SankeyInner({ widget }: SankeyInnerProps) {
                     </li>
                     <li>
                       <strong>Difference:</strong> Highlights budget vs. actual
-                      variance, showing overspent categories in red and unspent
-                      amounts.
+                      variance, showing overspent categories in red and
+                      underspent categories in green.
                     </li>
                   </ul>
                 </Trans>

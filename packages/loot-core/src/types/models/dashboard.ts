@@ -191,5 +191,8 @@ export type SankeyWidget = AbstractWidget<
     conditionsOp?: 'and' | 'or';
     timeFrame?: TimeFrame;
     mode?: 'budgeted' | 'spent' | 'difference';
+    compact?: boolean;
+    grouped?: boolean;
+    sortBy?: 'category' | 'value' | 'alphabetical';
   } | null
 >;

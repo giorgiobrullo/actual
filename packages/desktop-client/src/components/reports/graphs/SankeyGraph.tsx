@@ -434,9 +434,29 @@ export function SankeyGraph({
     return collapseSankeyBranches(data, collapsedSet);
   }, [compact, data, collapsedSet]);
 
+  // Count leaf nodes (nodes with no outgoing links) to determine required height
+  // Each leaf node needs ~35px (label + padding) to display properly
+  const leafNodeCount = useMemo(() => {
+    if (!sankeyData.nodes || !sankeyData.links) return 0;
+    const nodesWithOutgoing = new Set(sankeyData.links.map(l => l.source));
+    return sankeyData.nodes.filter((_, idx) => !nodesWithOutgoing.has(idx))
+      .length;
+  }, [sankeyData]);
+
+  // Calculate minimum height: ensure each leaf node gets enough space
+  // Base height of 300, but scale up if we have many leaf nodes
+  const dynamicMinHeight = useMemo(() => {
+    if (compact) return 300;
+    const heightPerNode = 42; // Enough for label + value + comfortable padding
+    const minForLeafs = leafNodeCount * heightPerNode;
+    return Math.max(300, minForLeafs);
+  }, [compact, leafNodeCount]);
+
   if (!sankeyData.links || sankeyData.links.length === 0) {
     return (
-      <Container style={{ ...style, ...(compact && { minHeight: 300 }) }}>
+      <Container
+        style={{ ...style, minHeight: compact ? 300 : dynamicMinHeight }}
+      >
         {() => (
           <div
             style={{
@@ -456,7 +476,7 @@ export function SankeyGraph({
   }
 
   return (
-    <Container style={{ ...style, ...(compact && { minHeight: 300 }) }}>
+    <Container style={{ ...style, minHeight: dynamicMinHeight }}>
       {(width, height) => (
         <ResponsiveContainer>
           <Sankey

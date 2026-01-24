@@ -10,6 +10,7 @@ type ServerConfig = {
   PLUGGYAI_SERVER: string;
   ENABLEBANKING_SERVER: string;
   AMEX_SERVER: string;
+  CARTAYOU_SERVER: string;
 };
 
 let config: ServerConfig | null = null;
@@ -49,6 +50,7 @@ export function getServer(url?: string): ServerConfig | null {
         PLUGGYAI_SERVER: joinURL(url, '/pluggyai'),
         ENABLEBANKING_SERVER: joinURL(url, '/enablebanking'),
         AMEX_SERVER: joinURL(url, '/amex'),
+        CARTAYOU_SERVER: joinURL(url, '/cartayou'),
       };
     } catch (error) {
       logger.warn(

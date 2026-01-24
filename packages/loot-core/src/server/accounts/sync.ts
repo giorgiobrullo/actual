@@ -35,6 +35,7 @@ import {
 } from '../util/custom-sync-mapping';
 
 import { downloadAmexTransactions } from './amex';
+import { downloadCartaYouTransactions } from './cartayou';
 import { downloadEnableBankingTransactions } from './enablebanking';
 import { getStartingBalancePayee } from './payees';
 import { title } from './title';
@@ -1015,6 +1016,8 @@ export async function syncAccount(
     );
   } else if (acctRow.account_sync_source === 'amex') {
     download = await downloadAmexTransactions(acctId, syncStartDate);
+  } else if (acctRow.account_sync_source === 'cartayou') {
+    download = await downloadCartaYouTransactions(acctId, syncStartDate);
   } else {
     throw new Error(
       `Unrecognized bank-sync provider: ${acctRow.account_sync_source}`,

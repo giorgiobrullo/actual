@@ -8,10 +8,10 @@
 
 This is a **forked version of Actual Budget** with additional features for Italian users:
 
-- **Sankey Diagram** - Visualize your cash flow with an interactive Sankey chart (merged from [PR #6068](https://github.com/actualbudget/actual/pull/6068))
+- **Sankey Diagram** - Visualize your cash flow with an interactive Sankey chart (based on [PR #6068](https://github.com/actualbudget/actual/pull/6068) with additional improvements)
 - **Enable Banking Integration** - Connect to Italian banks via Enable Banking API
 - **American Express Italy Sync** - Custom bank sync for Amex Italy accounts with 2FA support via IMAP
-- **Carta You / Advanzia** - Coming soon!
+- **Carta You / Advanzia** - Bank sync for Carta You (Advanzia) credit cards with SMS OTP support via iOS Shortcuts webhook
 
 For the original Actual Budget, visit [actualbudget/actual](https://github.com/actualbudget/actual).
 

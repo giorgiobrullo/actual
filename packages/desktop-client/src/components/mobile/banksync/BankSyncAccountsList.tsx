@@ -4,13 +4,16 @@ import { Text } from '@actual-app/components/text';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
-import { type AccountEntity } from 'loot-core/types/models';
+import {
+  type AccountEntity,
+  type BankSyncProviders,
+} from 'loot-core/types/models';
 
 import { BankSyncAccountsListItem } from './BankSyncAccountsListItem';
 
 import { MOBILE_NAV_HEIGHT } from '@desktop-client/components/mobile/MobileNavTabs';
 
-type SyncProviders = 'goCardless' | 'simpleFin' | 'pluggyai' | 'unlinked';
+type SyncProviders = BankSyncProviders | 'unlinked';
 
 type BankSyncAccountsListProps = {
   groupedAccounts: Record<SyncProviders, AccountEntity[]>;

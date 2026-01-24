@@ -3,31 +3,31 @@ import {
   type AccountEntity,
   type SyncServerGoCardlessAccount,
 } from 'loot-core/types/models';
-import { type AmexToken } from 'loot-core/types/models/amex';
+import { type CartaYouToken } from 'loot-core/types/models/cartayou';
 
 import { linkAccount } from '@desktop-client/accounts/accountsSlice';
 import { closeModal, pushModal } from '@desktop-client/modals/modalsSlice';
 import { addNotification } from '@desktop-client/notifications/notificationsSlice';
 import { type AppDispatch } from '@desktop-client/redux/store';
 
-export async function deconfigureAmex() {
-  await send('amex-configure', { username: null, password: null });
+export async function deconfigureCartaYou() {
+  await send('cartayou-deconfigure');
 }
 
-export function selectAmexAccounts(
+export function selectCartaYouAccounts(
   dispatch: AppDispatch,
-  token: AmexToken,
+  token: CartaYouToken,
   accountEntity?: AccountEntity,
 ) {
-  // Converting Amex accounts to "GoCardlessAccounts" format for compatibility
+  // Converting Carta You accounts to "GoCardlessAccounts" format for compatibility
   const accounts: SyncServerGoCardlessAccount[] = token.accounts.map(
-    amexAccount => ({
-      account_id: amexAccount.account_token,
-      name: amexAccount.name,
-      institution: { name: 'American Express' },
-      mask: amexAccount.display_number,
-      official_name: amexAccount.name,
-      balance: amexAccount.balance ?? 0,
+    cartayouAccount => ({
+      account_id: cartayouAccount.account_id,
+      name: cartayouAccount.name,
+      institution: { name: 'Carta You (Advanzia)' },
+      mask: cartayouAccount.display_number,
+      official_name: cartayouAccount.name,
+      balance: cartayouAccount.balance ?? 0,
     }),
   );
 
@@ -43,16 +43,16 @@ export function selectAmexAccounts(
       dispatch(
         linkAccount({
           account,
-          requisitionId: 'amex',
+          requisitionId: 'cartayou',
           upgradingId: accountEntity.id,
-          syncSource: 'amex',
+          syncSource: 'cartayou',
         }),
       );
       dispatch(
         addNotification({
           notification: {
             type: 'message',
-            message: `Reauthorized Banksync via Amex for ${accountEntity.name}`,
+            message: `Reauthorized Banksync via Carta You for ${accountEntity.name}`,
           },
         }),
       );
@@ -66,16 +66,16 @@ export function selectAmexAccounts(
       modal: {
         name: 'select-linked-accounts',
         options: {
-          requisitionId: 'amex',
+          requisitionId: 'cartayou',
           externalAccounts: accounts,
-          syncSource: 'amex',
+          syncSource: 'cartayou',
         },
       },
     }),
   );
 }
 
-export function authorizeAmexSession(
+export function authorizeCartaYouSession(
   dispatch: AppDispatch,
   account?: AccountEntity,
   onUnlink?: () => void,
@@ -83,13 +83,13 @@ export function authorizeAmexSession(
   dispatch(
     pushModal({
       modal: {
-        name: 'amex-setup-account',
+        name: 'cartayou-setup-account',
         options: {
-          onSuccess: async (token: AmexToken) => {
+          onSuccess: async (token: CartaYouToken) => {
             if (onUnlink) {
               onUnlink();
             }
-            selectAmexAccounts(dispatch, token, account);
+            selectCartaYouAccounts(dispatch, token, account);
           },
         },
       },

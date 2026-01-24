@@ -27,4 +27,5 @@ export type AccountSyncSource =
   | 'goCardless'
   | 'pluggyai'
   | 'enablebanking'
-  | 'amex';
+  | 'amex'
+  | 'cartayou';

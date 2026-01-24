@@ -21,6 +21,10 @@ import {
   deconfigureAmex,
 } from '@desktop-client/banksync/amex';
 import {
+  authorizeCartaYouSession,
+  deconfigureCartaYou,
+} from '@desktop-client/banksync/cartayou';
+import {
   authorizeEnableBankingSession,
   deconfigureEnableBanking,
 } from '@desktop-client/banksync/enablebanking';
@@ -69,6 +73,9 @@ export function CreateAccountModal({
     boolean | null
   >(null);
   const [isAmexSetupComplete, setIsAmexSetupComplete] = useState<
+    boolean | null
+  >(null);
+  const [isCartaYouSetupComplete, setIsCartaYouSetupComplete] = useState<
     boolean | null
   >(null);
   const { hasPermission } = useAuth();
@@ -245,6 +252,10 @@ export function CreateAccountModal({
     authorizeAmexSession(dispatch);
   };
 
+  const onConnectCartaYou = async () => {
+    authorizeCartaYouSession(dispatch);
+  };
+
   const onGoCardlessInit = () => {
     dispatch(
       pushModal({
@@ -356,6 +367,12 @@ export function CreateAccountModal({
     });
   };
 
+  const onCartaYouReset = () => {
+    deconfigureCartaYou().then(() => {
+      setIsCartaYouSetupComplete(false);
+    });
+  };
+
   const onCreateLocalAccount = () => {
     dispatch(pushModal({ modal: { name: 'add-local-account' } }));
   };
@@ -390,6 +407,17 @@ export function CreateAccountModal({
         setIsAmexSetupComplete(true);
       } else {
         setIsAmexSetupComplete(false);
+      }
+    });
+  }, []);
+
+  // Check Carta You status on mount
+  useEffect(() => {
+    send('cartayou-status').then(result => {
+      if (result?.data?.configured) {
+        setIsCartaYouSetupComplete(true);
+      } else {
+        setIsCartaYouSetupComplete(false);
       }
     });
   }, []);
@@ -774,6 +802,67 @@ export function CreateAccountModal({
                           <strong>Link an American Express account</strong> to
                           automatically download transactions. Uses browser
                           automation to sync with Amex Italy.
+                        </Trans>
+                      </Text>
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          gap: 10,
+                          marginTop: '18px',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <ButtonWithLoading
+                          isDisabled={syncServerStatus !== 'online'}
+                          style={{
+                            padding: '10px 0',
+                            fontSize: 15,
+                            fontWeight: 600,
+                            flex: 1,
+                          }}
+                          onPress={onConnectCartaYou}
+                        >
+                          {isCartaYouSetupComplete
+                            ? t('Link Carta You account')
+                            : t('Set up Carta You for bank sync')}
+                        </ButtonWithLoading>
+                        {isCartaYouSetupComplete && (
+                          <DialogTrigger>
+                            <Button
+                              variant="bare"
+                              aria-label={t('Carta You menu')}
+                            >
+                              <SvgDotsHorizontalTriple
+                                width={15}
+                                height={15}
+                                style={{ transform: 'rotateZ(90deg)' }}
+                              />
+                            </Button>
+                            <Popover>
+                              <Dialog>
+                                <Menu
+                                  onMenuSelect={item => {
+                                    if (item === 'reconfigure') {
+                                      onCartaYouReset();
+                                    }
+                                  }}
+                                  items={[
+                                    {
+                                      name: 'reconfigure',
+                                      text: t('Reset Carta You credentials'),
+                                    },
+                                  ]}
+                                />
+                              </Dialog>
+                            </Popover>
+                          </DialogTrigger>
+                        )}
+                      </View>
+                      <Text style={{ lineHeight: '1.4em', fontSize: 15 }}>
+                        <Trans>
+                          <strong>Link a Carta You (Advanzia) account</strong>{' '}
+                          to automatically download transactions. Uses browser
+                          automation to sync with Carta You.
                         </Trans>
                       </Text>
                     </>

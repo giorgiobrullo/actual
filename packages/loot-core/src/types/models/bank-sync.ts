@@ -24,4 +24,6 @@ export type BankSyncProviders =
   | 'goCardless'
   | 'simpleFin'
   | 'pluggyai'
-  | 'enablebanking';
+  | 'enablebanking'
+  | 'amex'
+  | 'cartayou';

@@ -39,6 +39,10 @@ import {
   type AccountHandlers as AmexAccountHandlers,
 } from './amex';
 import {
+  app as cartayouApp,
+  type AccountHandlers as CartaYouAccountHandlers,
+} from './cartayou';
+import {
   app as enableBankingApp,
   type AccountHandlers as EnableBankingAccountHandlers,
 } from './enablebanking';
@@ -74,7 +78,8 @@ export type AccountHandlers = {
   'transactions-import': typeof importTransactions;
   'account-unlink': typeof unlinkAccount;
 } & EnableBankingAccountHandlers &
-  AmexAccountHandlers;
+  AmexAccountHandlers &
+  CartaYouAccountHandlers;
 
 async function updateAccount({
   id,
@@ -1261,3 +1266,4 @@ app.method('transactions-import', mutator(undoable(importTransactions)));
 app.method('account-unlink', mutator(unlinkAccount));
 app.combine(enableBankingApp);
 app.combine(amexApp);
+app.combine(cartayouApp);

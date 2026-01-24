@@ -24,6 +24,9 @@ export const SecretName = {
   amex_imap_user: 'amex_imap_user',
   amex_imap_password: 'amex_imap_password',
   amex_imap_folder: 'amex_imap_folder',
+  cartayou_username: 'cartayou_username',
+  cartayou_password: 'cartayou_password',
+  cartayou_sms_secret: 'cartayou_sms_secret',
 };
 
 class SecretsDb {

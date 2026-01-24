@@ -11,6 +11,7 @@ import { AccountMenuModal } from './modals/AccountMenuModal';
 import { AmexSetupAccountModal } from './modals/AmexSetupAccountModal';
 import { BudgetAutomationsModal } from './modals/BudgetAutomationsModal';
 import { BudgetPageMenuModal } from './modals/BudgetPageMenuModal';
+import { CartaYouSetupAccountModal } from './modals/CartaYouSetupAccountModal';
 import { CategoryAutocompleteModal } from './modals/CategoryAutocompleteModal';
 import { CategoryGroupMenuModal } from './modals/CategoryGroupMenuModal';
 import { CategoryMenuModal } from './modals/CategoryMenuModal';
@@ -189,6 +190,9 @@ export function Modals() {
 
         case 'amex-setup-account':
           return <AmexSetupAccountModal key={key} {...modal.options} />;
+
+        case 'cartayou-setup-account':
+          return <CartaYouSetupAccountModal key={key} {...modal.options} />;
 
         case 'pluggyai-init':
           return <PluggyAiInitialiseModal key={key} {...modal.options} />;

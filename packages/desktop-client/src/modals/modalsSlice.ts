@@ -18,6 +18,7 @@ import {
   type UserEntity,
 } from 'loot-core/types/models';
 import { type AmexToken } from 'loot-core/types/models/amex';
+import { type CartaYouToken } from 'loot-core/types/models/cartayou';
 import { type EnableBankingToken } from 'loot-core/types/models/enablebanking';
 import { type Template } from 'loot-core/types/models/templates';
 
@@ -127,6 +128,18 @@ export type Modal =
       name: 'amex-setup-account';
       options: {
         onSuccess: (data: AmexToken) => Promise<void>;
+      };
+    }
+  | {
+      name: 'cartayou-init';
+      options: {
+        onSuccess: () => void;
+      };
+    }
+  | {
+      name: 'cartayou-setup-account';
+      options: {
+        onSuccess: (data: CartaYouToken) => Promise<void>;
       };
     }
   | {

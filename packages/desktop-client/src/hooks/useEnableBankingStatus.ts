@@ -44,7 +44,7 @@ export function useEnableBankingStatus() {
         return;
       }
 
-      setConfiguredEnableBanking(true);
+      setConfiguredEnableBanking(results.data?.configured || false);
       setIsLoading(false);
     }
 

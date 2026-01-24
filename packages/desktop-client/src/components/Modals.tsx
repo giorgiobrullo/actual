@@ -8,6 +8,7 @@ import * as monthUtils from 'loot-core/shared/months';
 import { EditSyncAccount } from './banksync/EditSyncAccount';
 import { AccountAutocompleteModal } from './modals/AccountAutocompleteModal';
 import { AccountMenuModal } from './modals/AccountMenuModal';
+import { AmexSetupAccountModal } from './modals/AmexSetupAccountModal';
 import { BudgetAutomationsModal } from './modals/BudgetAutomationsModal';
 import { BudgetPageMenuModal } from './modals/BudgetPageMenuModal';
 import { CategoryAutocompleteModal } from './modals/CategoryAutocompleteModal';
@@ -185,6 +186,9 @@ export function Modals() {
           return (
             <EnableBankingSetupAccountModal key={key} {...modal.options} />
           );
+
+        case 'amex-setup-account':
+          return <AmexSetupAccountModal key={key} {...modal.options} />;
 
         case 'pluggyai-init':
           return <PluggyAiInitialiseModal key={key} {...modal.options} />;

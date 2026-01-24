@@ -35,6 +35,10 @@ import { batchMessages } from '../sync';
 import { undoable, withUndo } from '../undo';
 
 import {
+  app as amexApp,
+  type AccountHandlers as AmexAccountHandlers,
+} from './amex';
+import {
   app as enableBankingApp,
   type AccountHandlers as EnableBankingAccountHandlers,
 } from './enablebanking';
@@ -69,7 +73,8 @@ export type AccountHandlers = {
   'simplefin-batch-sync': typeof simpleFinBatchSync;
   'transactions-import': typeof importTransactions;
   'account-unlink': typeof unlinkAccount;
-} & EnableBankingAccountHandlers;
+} & EnableBankingAccountHandlers &
+  AmexAccountHandlers;
 
 async function updateAccount({
   id,
@@ -1255,3 +1260,4 @@ app.method('simplefin-batch-sync', simpleFinBatchSync);
 app.method('transactions-import', mutator(undoable(importTransactions)));
 app.method('account-unlink', mutator(unlinkAccount));
 app.combine(enableBankingApp);
+app.combine(amexApp);

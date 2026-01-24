@@ -17,6 +17,7 @@ import {
   type UserAccessEntity,
   type UserEntity,
 } from 'loot-core/types/models';
+import { type AmexToken } from 'loot-core/types/models/amex';
 import { type EnableBankingToken } from 'loot-core/types/models/enablebanking';
 import { type Template } from 'loot-core/types/models/templates';
 
@@ -114,6 +115,18 @@ export type Modal =
       name: 'enablebanking-setup-account';
       options: {
         onSuccess: (data: EnableBankingToken) => Promise<void>;
+      };
+    }
+  | {
+      name: 'amex-init';
+      options: {
+        onSuccess: () => void;
+      };
+    }
+  | {
+      name: 'amex-setup-account';
+      options: {
+        onSuccess: (data: AmexToken) => Promise<void>;
       };
     }
   | {

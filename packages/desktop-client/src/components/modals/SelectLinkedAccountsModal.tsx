@@ -81,6 +81,11 @@ export type SelectLinkedAccountsModalProps =
       requisitionId: string;
       externalAccounts: SyncServerGoCardlessAccount[]; // we are using this here as the "standard" to avoid clutter in the code.
       syncSource: 'enablebanking';
+    }
+  | {
+      requisitionId: string;
+      externalAccounts: SyncServerGoCardlessAccount[];
+      syncSource: 'amex';
     };
 
 export function SelectLinkedAccountsModal({
@@ -109,6 +114,7 @@ export function SelectLinkedAccountsModal({
           };
         case 'goCardless':
         case 'enablebanking':
+        case 'amex':
           return {
             syncSource,
             requisitionId: requisitionId!,

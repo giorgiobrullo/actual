@@ -34,6 +34,7 @@ import {
   mappingsFromString,
 } from '../util/custom-sync-mapping';
 
+import { downloadAmexTransactions } from './amex';
 import { downloadEnableBankingTransactions } from './enablebanking';
 import { getStartingBalancePayee } from './payees';
 import { title } from './title';
@@ -1012,6 +1013,8 @@ export async function syncAccount(
       syncStartDate,
       bankId,
     );
+  } else if (acctRow.account_sync_source === 'amex') {
+    download = await downloadAmexTransactions(acctId, syncStartDate);
   } else {
     throw new Error(
       `Unrecognized bank-sync provider: ${acctRow.account_sync_source}`,

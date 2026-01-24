@@ -17,6 +17,10 @@ import { send } from 'loot-core/platform/client/fetch';
 import { useAuth } from '@desktop-client/auth/AuthProvider';
 import { Permissions } from '@desktop-client/auth/types';
 import {
+  authorizeAmexSession,
+  deconfigureAmex,
+} from '@desktop-client/banksync/amex';
+import {
   authorizeEnableBankingSession,
   deconfigureEnableBanking,
 } from '@desktop-client/banksync/enablebanking';
@@ -62,6 +66,9 @@ export function CreateAccountModal({
   const [isEnableBankingSetupComplete, setIsEnableBankingSetupComplete] =
     useState<boolean | null>(null);
   const [isPluggyAiSetupComplete, setIsPluggyAiSetupComplete] = useState<
+    boolean | null
+  >(null);
+  const [isAmexSetupComplete, setIsAmexSetupComplete] = useState<
     boolean | null
   >(null);
   const { hasPermission } = useAuth();
@@ -234,6 +241,10 @@ export function CreateAccountModal({
     }
   };
 
+  const onConnectAmex = async () => {
+    authorizeAmexSession(dispatch);
+  };
+
   const onGoCardlessInit = () => {
     dispatch(
       pushModal({
@@ -339,6 +350,12 @@ export function CreateAccountModal({
     });
   };
 
+  const onAmexReset = () => {
+    deconfigureAmex().then(() => {
+      setIsAmexSetupComplete(false);
+    });
+  };
+
   const onCreateLocalAccount = () => {
     dispatch(pushModal({ modal: { name: 'add-local-account' } }));
   };
@@ -365,6 +382,17 @@ export function CreateAccountModal({
   useEffect(() => {
     setIsPluggyAiSetupComplete(configuredPluggyAi);
   }, [configuredPluggyAi]);
+
+  // Check Amex status on mount
+  useEffect(() => {
+    send('amex-status').then(result => {
+      if (result?.data?.configured) {
+        setIsAmexSetupComplete(true);
+      } else {
+        setIsAmexSetupComplete(false);
+      }
+    });
+  }, []);
 
   let title = t('Add account');
   const [loadingSimpleFinAccounts, setLoadingSimpleFinAccounts] =
@@ -683,6 +711,69 @@ export function CreateAccountModal({
                           to automatically download transactions. Pluggy.ai
                           provides reliable, up-to-date information from
                           hundreds of banks.
+                        </Trans>
+                      </Text>
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          gap: 10,
+                          marginTop: '18px',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <ButtonWithLoading
+                          isDisabled={syncServerStatus !== 'online'}
+                          style={{
+                            padding: '10px 0',
+                            fontSize: 15,
+                            fontWeight: 600,
+                            flex: 1,
+                          }}
+                          onPress={onConnectAmex}
+                        >
+                          {isAmexSetupComplete
+                            ? t('Link American Express account')
+                            : t('Set up American Express for bank sync')}
+                        </ButtonWithLoading>
+                        {isAmexSetupComplete && (
+                          <DialogTrigger>
+                            <Button
+                              variant="bare"
+                              aria-label={t('American Express menu')}
+                            >
+                              <SvgDotsHorizontalTriple
+                                width={15}
+                                height={15}
+                                style={{ transform: 'rotateZ(90deg)' }}
+                              />
+                            </Button>
+                            <Popover>
+                              <Dialog>
+                                <Menu
+                                  onMenuSelect={item => {
+                                    if (item === 'reconfigure') {
+                                      onAmexReset();
+                                    }
+                                  }}
+                                  items={[
+                                    {
+                                      name: 'reconfigure',
+                                      text: t(
+                                        'Reset American Express credentials',
+                                      ),
+                                    },
+                                  ]}
+                                />
+                              </Dialog>
+                            </Popover>
+                          </DialogTrigger>
+                        )}
+                      </View>
+                      <Text style={{ lineHeight: '1.4em', fontSize: 15 }}>
+                        <Trans>
+                          <strong>Link an American Express account</strong> to
+                          automatically download transactions. Uses browser
+                          automation to sync with Amex Italy.
                         </Trans>
                       </Text>
                     </>

@@ -17,6 +17,13 @@ export const SecretName = {
   pluggyai_itemIds: 'pluggyai_itemIds',
   enablebanking_applicationId: 'enablebanking_applicationId',
   enablebanking_secret: 'enablebanking_secret',
+  amex_username: 'amex_username',
+  amex_password: 'amex_password',
+  amex_imap_host: 'amex_imap_host',
+  amex_imap_port: 'amex_imap_port',
+  amex_imap_user: 'amex_imap_user',
+  amex_imap_password: 'amex_imap_password',
+  amex_imap_folder: 'amex_imap_folder',
 };
 
 class SecretsDb {

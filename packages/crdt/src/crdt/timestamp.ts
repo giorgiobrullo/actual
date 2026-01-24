@@ -1,6 +1,5 @@
-import { randomUUID } from 'crypto';
-
 import murmurhash from 'murmurhash';
+import { v4 as uuidv4 } from 'uuid';
 
 import { type TrieNode } from './merkle';
 
@@ -78,7 +77,7 @@ export function deserializeClock(clock: string): Clock {
 }
 
 export function makeClientId() {
-  return randomUUID().replace(/-/g, '').slice(-16);
+  return uuidv4().replace(/-/g, '').slice(-16);
 }
 
 const config = {

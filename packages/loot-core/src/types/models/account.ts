@@ -26,4 +26,5 @@ export type AccountSyncSource =
   | 'simpleFin'
   | 'goCardless'
   | 'pluggyai'
-  | 'enablebanking';
+  | 'enablebanking'
+  | 'amex';

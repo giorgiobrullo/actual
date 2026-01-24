@@ -2,6 +2,21 @@
   <img src="/demo.png" alt="Actualbudget" />
 </p>
 
+---
+
+## 🇮🇹 Italian Fork
+
+This is a **forked version of Actual Budget** with additional features for Italian users:
+
+- **Sankey Diagram** - Visualize your cash flow with an interactive Sankey chart (merged from [PR #6068](https://github.com/actualbudget/actual/pull/6068))
+- **Enable Banking Integration** - Connect to Italian banks via Enable Banking API
+- **American Express Italy Sync** - Custom bank sync for Amex Italy accounts with 2FA support via IMAP
+- **Carta You / Advanzia** - Coming soon!
+
+For the original Actual Budget, visit [actualbudget/actual](https://github.com/actualbudget/actual).
+
+---
+
 ## Getting Started
 
 Actual is a local-first personal finance tool. It is 100% free and open-source, written in NodeJS, it has a synchronization element so that all your changes can move between devices without any heavy lifting.

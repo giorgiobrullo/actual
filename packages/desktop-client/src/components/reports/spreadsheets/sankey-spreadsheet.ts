@@ -199,6 +199,11 @@ export function createBudgetSpreadsheet(
     let totalToBudget = 0;
 
     for (const data of monthlyData) {
+      // Skip months that don't have budget data
+      if (!data.categoryGroups) {
+        continue;
+      }
+
       const filteredCategoryGroups = await filterCategoryGroups(
         data.categoryGroups,
         conditions,
@@ -465,6 +470,11 @@ export function createDifferenceSpreadsheet(
     let totalFromLastMonth = 0;
 
     for (const data of monthlyData) {
+      // Skip months that don't have budget data
+      if (!data.categoryGroups) {
+        continue;
+      }
+
       // Apply filters to category groups
       const filteredCategoryGroups = await filterCategoryGroups(
         data.categoryGroups,

@@ -1,6 +1,10 @@
 import express, { type Express, type Request, type Router } from 'express';
 
 import {
+  configureCaptchaService,
+  isCaptchaServiceConfigured,
+} from '../services/captcha-service.js';
+import {
   requestLoggerMiddleware,
   validateSessionMiddleware,
 } from '../util/middlewares.js';
@@ -77,7 +81,25 @@ post('/status', async () => {
   return {
     configured: status.configured,
     lastLogin: status.hasSession ? new Date().toISOString() : undefined,
+    captchaSolverConfigured: isCaptchaServiceConfigured(),
   };
+});
+
+/**
+ * POST /configure-captcha
+ * Configure 2Captcha API key for solving CAPTCHAs
+ */
+app.post('/configure-captcha', (req, res) => {
+  const { apiKey } = req.body as { apiKey?: string };
+
+  if (!apiKey) {
+    return res.status(400).json({
+      error: { error_code: 'BAD_REQUEST', error_type: 'Missing apiKey' },
+    });
+  }
+
+  configureCaptchaService(apiKey);
+  return res.json({ data: { success: true } });
 });
 
 /**

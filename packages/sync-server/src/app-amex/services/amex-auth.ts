@@ -1,6 +1,12 @@
 import createDebug from 'debug';
 import { chromium, type Browser, type BrowserContext } from 'patchright';
 
+import {
+  detectRecaptcha,
+  injectCaptchaToken,
+  isCaptchaServiceConfigured,
+  solveRecaptcha,
+} from '../../services/captcha-service.js';
 import { SecretName, secretsService } from '../../services/secrets-service.js';
 import { type AmexAccount } from '../models/amex.js';
 import { AuthFailedError } from '../utils/errors.js';
@@ -22,7 +28,7 @@ type AmexSession = {
   accounts: AmexAccount[];
   createdAt: number;
   expiresAt: number;
-}
+};
 
 let cachedSession: AmexSession | null = null;
 
@@ -126,13 +132,16 @@ export async function performLogin(): Promise<AmexSession> {
                 );
                 if (existing) {
                   // Merge additional data into existing account
-                  if (item.total_credit_amount)
-                    {existing.credit_limit = item.total_credit_amount;}
-                  if (item.available_credit_amount)
-                    {existing.available_credit = item.available_credit_amount;}
+                  if (item.total_credit_amount) {
+                    existing.credit_limit = item.total_credit_amount;
+                  }
+                  if (item.available_credit_amount) {
+                    existing.available_credit = item.available_credit_amount;
+                  }
                   if (item.product_name) existing.name = item.product_name;
-                  if (item.display_account_number)
-                    {existing.display_number = item.display_account_number;}
+                  if (item.display_account_number) {
+                    existing.display_number = item.display_account_number;
+                  }
                   // Balance from /balances endpoint
                   if (item.statement_balance_amount !== undefined) {
                     existing.balance = item.statement_balance_amount;
@@ -241,7 +250,55 @@ export async function performLogin(): Promise<AmexSession> {
     await page.fill('#eliloPassword', password);
 
     // Click login button
+    debug('Clicking login button...');
     await page.click('#loginSubmit');
+
+    // Small wait for any immediate page response
+    await page.waitForTimeout(2000);
+
+    // Check for CAPTCHA and try to solve it
+    const captcha = await detectRecaptcha(page);
+    if (captcha) {
+      debug('CAPTCHA detected (type: %s)', captcha.type);
+
+      if (!isCaptchaServiceConfigured()) {
+        debug('CAPTCHA detected but 2Captcha not configured');
+        throw new AuthFailedError(
+          'CAPTCHA verification required. Configure 2Captcha API key in settings or try again later.',
+        );
+      }
+
+      debug('Attempting to solve CAPTCHA with 2Captcha...');
+      const token = await solveRecaptcha(
+        page.url(),
+        captcha.sitekey,
+        captcha.type,
+      );
+
+      if (!token) {
+        throw new AuthFailedError(
+          'Failed to solve CAPTCHA. Please try again later.',
+        );
+      }
+
+      await injectCaptchaToken(page, token);
+      debug('CAPTCHA solved and token injected');
+
+      // Re-click login button after solving CAPTCHA
+      await page.click('#loginSubmit');
+      await page.waitForTimeout(2000);
+    }
+
+    // Check for any blocking modal or overlay
+    const blockingOverlay = await page.$(
+      '[data-testid="modal-overlay"], .modal-overlay, #security-challenge',
+    );
+    if (blockingOverlay) {
+      debug('Security challenge modal detected');
+      throw new AuthFailedError(
+        'Security challenge detected. Please log in manually to verify your account.',
+      );
+    }
 
     // Wait for either:
     // 1. Successful redirect to dashboard
@@ -302,6 +359,29 @@ export async function performLogin(): Promise<AmexSession> {
         throw e;
       }
       debug('Timeout waiting for login result, checking current state...');
+
+      // Check for error messages that might have appeared
+      const errorText = await page
+        .$eval(
+          '[data-testid="login-message-container"], .error-message, [role="alert"], .axp-global-alert',
+          el => el.textContent,
+        )
+        .catch(() => null);
+
+      if (errorText) {
+        debug('Found error message: %s', errorText);
+        throw new AuthFailedError(errorText.trim());
+      }
+
+      // Check if still on login page - might indicate blocked login
+      const stillOnLogin = page.url().includes('/login');
+      if (stillOnLogin) {
+        // Try to find any visible error or issue
+        const pageText = await page
+          .$eval('body', el => el.innerText.substring(0, 500))
+          .catch(() => '');
+        debug('Still on login page. Page content preview: %s', pageText);
+      }
     }
 
     let currentUrl = page.url();
@@ -506,6 +586,27 @@ export async function performLogin(): Promise<AmexSession> {
 
     if (!isLoggedIn) {
       debug('Unexpected URL after login: %s', currentUrl);
+
+      // Try to get more info about what's on the page
+      const bodyText = await page
+        .$eval('body', el => el.innerText.substring(0, 1000))
+        .catch(() => '');
+      debug('Page content: %s', bodyText);
+
+      // Check for specific known issues
+      if (currentUrl.includes('login')) {
+        // Still on login page - credentials might be wrong or captcha
+        const loginButton = await page.$('#loginSubmit');
+        const loginButtonDisabled = loginButton
+          ? await loginButton.isDisabled().catch(() => false)
+          : false;
+        debug('Login button still present, disabled: %s', loginButtonDisabled);
+
+        throw new AuthFailedError(
+          'Login failed - page did not redirect. Check credentials or try again later (possible rate limiting).',
+        );
+      }
+
       throw new AuthFailedError('Login failed - unexpected redirect');
     }
 

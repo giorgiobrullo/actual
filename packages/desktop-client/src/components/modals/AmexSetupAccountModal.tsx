@@ -100,6 +100,16 @@ export function AmexSetupAccountModal({
   const [isConfigured, setIsConfigured] = useState(false);
   const [showNewCredentials, setShowNewCredentials] = useState(false);
 
+  // CAPTCHA solver state
+  const [showCaptchaConfig, setShowCaptchaConfig] = useState(false);
+  const [captchaApiKey, setCaptchaApiKey] = useState('');
+  const [isCaptchaConfigured, setIsCaptchaConfigured] = useState(false);
+  const [isTestingCaptcha, setIsTestingCaptcha] = useState(false);
+  const [captchaTestResult, setCaptchaTestResult] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
+
   // Check if credentials are already configured on mount
   useEffect(() => {
     const checkStatus = async () => {
@@ -107,6 +117,9 @@ export function AmexSetupAccountModal({
         const result = await send('amex-status');
         if (result?.data?.configured) {
           setIsConfigured(true);
+        }
+        if (result?.data?.captchaSolverConfigured) {
+          setIsCaptchaConfigured(true);
         }
       } catch {
         // Ignore errors, just show the form
@@ -116,6 +129,46 @@ export function AmexSetupAccountModal({
     };
     checkStatus();
   }, []);
+
+  const handleConfigureCaptcha = async () => {
+    if (!captchaApiKey) {
+      setCaptchaTestResult({
+        success: false,
+        message: t('Please enter a 2Captcha API key'),
+      });
+      return;
+    }
+
+    setIsTestingCaptcha(true);
+    setCaptchaTestResult(null);
+
+    try {
+      const result = await send('amex-configure-captcha', {
+        apiKey: captchaApiKey,
+      });
+
+      if (result?.error) {
+        setCaptchaTestResult({
+          success: false,
+          message: result.error.error_type || t('Configuration failed'),
+        });
+      } else {
+        setCaptchaTestResult({
+          success: true,
+          message: t('2Captcha API key saved successfully'),
+        });
+        setIsCaptchaConfigured(true);
+        setCaptchaApiKey(''); // Clear the input after success
+      }
+    } catch (err) {
+      setCaptchaTestResult({
+        success: false,
+        message: String(err),
+      });
+    } finally {
+      setIsTestingCaptcha(false);
+    }
+  };
 
   const handleTestImap = async () => {
     if (!imapHost || !imapUser || !imapPassword) {
@@ -574,6 +627,110 @@ export function AmexSetupAccountModal({
                                   </View>
                                 )}
                               </>
+                            )}
+                          </View>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* CAPTCHA Solver Configuration */}
+                    <View style={{ marginTop: 15 }}>
+                      <Button
+                        variant="bare"
+                        onPress={() => setShowCaptchaConfig(!showCaptchaConfig)}
+                        style={{ padding: 0, fontSize: 13 }}
+                      >
+                        {showCaptchaConfig
+                          ? t('▼ Hide CAPTCHA solver settings')
+                          : t('▶ Configure CAPTCHA solver (optional)')}
+                      </Button>
+
+                      {showCaptchaConfig && (
+                        <View
+                          style={{
+                            marginTop: 10,
+                            padding: 10,
+                            backgroundColor: theme.tableRowBackgroundHover,
+                            borderRadius: 4,
+                          }}
+                        >
+                          <Text style={{ fontSize: 13, marginBottom: 10 }}>
+                            <Trans>
+                              American Express may show a CAPTCHA challenge,
+                              especially when accessing from datacenter IPs
+                              (cloud servers, VPS). Configure a 2Captcha API key
+                              to automatically solve these challenges.
+                            </Trans>
+                          </Text>
+
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              marginBottom: 10,
+                              color: theme.pageTextSubdued,
+                            }}
+                          >
+                            <Trans>
+                              Get an API key from 2captcha.com (~$3 per 1000
+                              solves)
+                            </Trans>
+                          </Text>
+
+                          {isCaptchaConfigured && (
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                marginBottom: 10,
+                                color: theme.noticeTextLight,
+                              }}
+                            >
+                              ✓ <Trans>2Captcha is configured</Trans>
+                            </Text>
+                          )}
+
+                          <FormField>
+                            <FormLabel
+                              title={t('2Captcha API Key')}
+                              htmlFor="amex-captcha-key"
+                            />
+                            <Input
+                              id="amex-captcha-key"
+                              type="password"
+                              value={captchaApiKey}
+                              onChangeValue={setCaptchaApiKey}
+                              placeholder={
+                                isCaptchaConfigured
+                                  ? t('Enter new key to update')
+                                  : t('Enter your 2Captcha API key')
+                              }
+                              disabled={isLoggingIn}
+                            />
+                          </FormField>
+
+                          <View style={{ marginTop: 10 }}>
+                            <ButtonWithLoading
+                              variant="bare"
+                              style={{ padding: '5px 10px', fontSize: 13 }}
+                              onPress={handleConfigureCaptcha}
+                              isLoading={isTestingCaptcha}
+                              isDisabled={isLoggingIn || !captchaApiKey}
+                            >
+                              <Trans>Save API Key</Trans>
+                            </ButtonWithLoading>
+
+                            {captchaTestResult && (
+                              <Text
+                                style={{
+                                  marginTop: 8,
+                                  fontSize: 13,
+                                  color: captchaTestResult.success
+                                    ? theme.noticeTextLight
+                                    : theme.errorText,
+                                }}
+                              >
+                                {captchaTestResult.success ? '✓ ' : '✗ '}
+                                {captchaTestResult.message}
+                              </Text>
                             )}
                           </View>
                         </View>

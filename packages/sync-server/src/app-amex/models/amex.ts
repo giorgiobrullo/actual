@@ -95,6 +95,7 @@ export type TransactionsBody = {
 export type AmexStatusResponse = {
   configured: boolean;
   lastLogin?: string;
+  captchaSolverConfigured?: boolean;
 };
 
 export type AmexLoginResponse = {

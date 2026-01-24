@@ -9,6 +9,10 @@ export type AmexEndpoints = {
   '/deconfigure': Endpoint<undefined, void>;
   '/test-imap': Endpoint<TestImapBody, TestImapResponse>;
   '/debug-imap': Endpoint<DebugImapBody, DebugImapResponse>;
+  '/configure-captcha': Endpoint<
+    ConfigureCaptchaBody,
+    ConfigureCaptchaResponse
+  >;
 };
 
 export type Endpoint<BodyType, ResponseType> = {
@@ -96,6 +100,15 @@ export type TransactionsBody = {
 export type AmexStatusResponse = {
   configured: boolean;
   lastLogin?: string;
+  captchaSolverConfigured?: boolean;
+};
+
+export type ConfigureCaptchaBody = {
+  apiKey: string;
+};
+
+export type ConfigureCaptchaResponse = {
+  success: boolean;
 };
 
 export type AmexLoginResponse = {

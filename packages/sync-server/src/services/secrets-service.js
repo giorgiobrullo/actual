@@ -17,6 +17,7 @@ export const SecretName = {
   pluggyai_itemIds: 'pluggyai_itemIds',
   enablebanking_applicationId: 'enablebanking_applicationId',
   enablebanking_secret: 'enablebanking_secret',
+  enablebanking_sessions: 'enablebanking_sessions',
   amex_username: 'amex_username',
   amex_password: 'amex_password',
   amex_imap_host: 'amex_imap_host',
@@ -27,6 +28,7 @@ export const SecretName = {
   cartayou_username: 'cartayou_username',
   cartayou_password: 'cartayou_password',
   cartayou_sms_secret: 'cartayou_sms_secret',
+  captcha_2captcha_apikey: 'captcha_2captcha_apikey',
 };
 
 class SecretsDb {

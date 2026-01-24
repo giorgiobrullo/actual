@@ -43,15 +43,16 @@ type SessionEntry = {
   expiresAt: number;
 };
 
-// TTL for auth sessions (30 minutes - bank setup can be slow with app/SMS verification)
-const SESSION_TTL_MS = 30 * 60 * 1000;
+// TTL for auth sessions (30 days - matches typical bank consent validity)
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-// Cleanup interval (5 minutes)
-const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+// Cleanup interval (1 hour)
+const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
 class SessionStore {
   private sessions = new Map<string, SessionEntry>();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private initialized = false;
 
   constructor() {
     // Start periodic cleanup
@@ -60,20 +61,53 @@ class SessionStore {
     this.cleanupTimer.unref();
   }
 
+  private loadFromDb(): void {
+    if (this.initialized) return;
+    this.initialized = true;
+
+    try {
+      const stored = secretsService.get(SecretName.enablebanking_sessions);
+      if (stored) {
+        const parsed = JSON.parse(stored) as Record<string, SessionEntry>;
+        const now = Date.now();
+        for (const [state, entry] of Object.entries(parsed)) {
+          // Only load non-expired sessions
+          if (entry.expiresAt > now) {
+            this.sessions.set(state, entry);
+          }
+        }
+      }
+    } catch {
+      // Ignore parse errors, start fresh
+    }
+  }
+
+  private saveToDb(): void {
+    const obj: Record<string, SessionEntry> = {};
+    for (const [state, entry] of this.sessions) {
+      obj[state] = entry;
+    }
+    secretsService.set(SecretName.enablebanking_sessions, JSON.stringify(obj));
+  }
+
   set(state: string, sessionId: string): void {
+    this.loadFromDb();
     this.sessions.set(state, {
       sessionId,
       expiresAt: Date.now() + SESSION_TTL_MS,
     });
+    this.saveToDb();
   }
 
   get(state: string): string | undefined {
+    this.loadFromDb();
     const entry = this.sessions.get(state);
     if (!entry) return undefined;
 
     // Check if expired
     if (Date.now() > entry.expiresAt) {
       this.sessions.delete(state);
+      this.saveToDb();
       return undefined;
     }
 
@@ -81,11 +115,17 @@ class SessionStore {
   }
 
   private cleanup(): void {
+    this.loadFromDb();
     const now = Date.now();
+    let changed = false;
     for (const [state, entry] of this.sessions) {
       if (now > entry.expiresAt) {
         this.sessions.delete(state);
+        changed = true;
       }
+    }
+    if (changed) {
+      this.saveToDb();
     }
   }
 }

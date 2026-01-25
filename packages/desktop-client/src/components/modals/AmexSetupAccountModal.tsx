@@ -30,6 +30,17 @@ function renderError(
   error: AmexErrorInterface,
   t: ReturnType<typeof useTranslation>['t'],
 ) {
+  // Use the detailed error_type message from the backend when available,
+  // as it contains more specific information about what went wrong
+  if (error.error_type) {
+    return (
+      <Error style={{ alignSelf: 'center', marginBottom: 10 }}>
+        {error.error_type}
+      </Error>
+    );
+  }
+
+  // Fallback messages only when error_type is not provided
   const error_messages: Partial<Record<AmexErrorCode, string>> = {
     TIMED_OUT: t('Timed out. Please try again.'),
     AMEX_NOT_CONFIGURED: t(
@@ -49,9 +60,7 @@ function renderError(
     <Error style={{ alignSelf: 'center', marginBottom: 10 }}>
       {error.error_code in error_messages
         ? error_messages[error.error_code]
-        : t('An error occurred while linking your account: {{ message }}', {
-            message: error.error_type,
-          })}
+        : t('An unknown error occurred.')}
     </Error>
   );
 }

@@ -26,6 +26,7 @@ import {
 } from './services/imap-service.js';
 import {
   AmexSetupError,
+  BadRequestError,
   badRequestVariableError,
   handleErrorInHandler,
 } from './utils/errors.js';
@@ -92,52 +93,46 @@ post('/status', async () => {
  * POST /configure-captcha
  * Configure 2Captcha API key for solving CAPTCHAs
  */
-app.post('/configure-captcha', (req, res) => {
+post('/configure-captcha', async req => {
   const { apiKey } = req.body as { apiKey?: string };
 
   if (!apiKey) {
-    return res.status(400).json({
-      error: { error_code: 'BAD_REQUEST', error_type: 'Missing apiKey' },
-    });
+    throw badRequestVariableError('apiKey', '/configure-captcha');
   }
 
   configureCaptchaService(apiKey);
-  return res.json({ data: { success: true } });
+  return { success: true };
 });
 
 /**
  * POST /test-captcha
  * Test 2Captcha API key by checking balance
  */
-app.post('/test-captcha', async (req, res) => {
+post('/test-captcha', async req => {
   const { apiKey } = req.body as { apiKey?: string };
 
   if (!apiKey) {
-    return res.status(400).json({
-      error: { error_code: 'BAD_REQUEST', error_type: 'Missing apiKey' },
-    });
+    throw badRequestVariableError('apiKey', '/test-captcha');
   }
 
   const result = await testCaptchaApiKey(apiKey);
 
   if (!result.success) {
-    return res.status(400).json({
-      error: { error_code: 'BAD_REQUEST', error_type: result.error },
-    });
+    throw new BadRequestError(result.error || 'Invalid API key');
   }
 
-  return res.json({ data: { success: true, balance: result.balance } });
+  return { success: true, balance: result.balance };
 });
 
 /**
  * POST /configure-proxy
  * Configure proxy for browser automation (e.g., socks5://10.0.0.1:1080)
  */
-app.post('/configure-proxy', (req, res) => {
+post('/configure-proxy', async req => {
   const { proxy } = req.body as { proxy?: string | null };
 
   amexServices.configureProxy(proxy || null);
-  return res.json({ data: { success: true } });
+  return { success: true };
 });
 
 /**

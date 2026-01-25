@@ -41,6 +41,14 @@ export type TestCaptchaResponse = {
   balance?: number;
 };
 
+export type ConfigureProxyBody = {
+  proxy?: string | null;
+};
+
+export type ConfigureProxyResponse = {
+  success: boolean;
+};
+
 export type TestProxyBody = {
   proxy: string;
 };
@@ -51,6 +59,14 @@ export type TestProxyResponse = {
   message?: string;
 };
 
+export type ConfigureCaptchaBody = {
+  apiKey: string;
+};
+
+export type ConfigureCaptchaResponse = {
+  success: boolean;
+};
+
 export type AmexEndpoints = {
   '/configure': Endpoint<ConfigureBody, void>;
   '/status': Endpoint<undefined, AmexStatusResponse>;
@@ -59,7 +75,12 @@ export type AmexEndpoints = {
   '/transactions': Endpoint<TransactionsBody, TransactionsResponse>;
   '/test-imap': Endpoint<TestImapBody, TestImapResponse>;
   '/debug-imap': Endpoint<DebugImapBody, DebugImapResponse>;
+  '/configure-captcha': Endpoint<
+    ConfigureCaptchaBody,
+    ConfigureCaptchaResponse
+  >;
   '/test-captcha': Endpoint<TestCaptchaBody, TestCaptchaResponse>;
+  '/configure-proxy': Endpoint<ConfigureProxyBody, ConfigureProxyResponse>;
   '/test-proxy': Endpoint<TestProxyBody, TestProxyResponse>;
 };
 

@@ -99,12 +99,26 @@ export const EnableBankingInitialiseModal = ({
             rightContent={<ModalCloseButton onPress={close} />}
           />
           <View style={{ display: 'flex', gap: 10 }}>
-            <Text>
-              <Trans>
-                In order to enable bank sync via Enable Banking (only for EU
-                banks) you will need to create application credentials. .
-              </Trans>
-            </Text>
+            {window.location.protocol === 'http:' ? (
+              <Error>
+                <Trans>
+                  Enable Banking requires HTTPS. Please access the app via HTTPS
+                  to use this feature.
+                </Trans>
+              </Error>
+            ) : (
+              <Text>
+                <Trans>
+                  In order to enable bank sync via Enable Banking (only for EU
+                  banks) you will need to create application credentials. Make
+                  sure to add your redirect URL to your Enable Banking
+                  application settings:
+                </Trans>{' '}
+                <Text style={{ fontFamily: 'monospace' }}>
+                  {window.location.origin}/enablebanking/auth_callback
+                </Text>
+              </Text>
+            )}
 
             <FormField>
               <FormLabel

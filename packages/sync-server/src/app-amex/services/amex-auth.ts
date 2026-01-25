@@ -410,15 +410,6 @@ export async function performLogin(): Promise<AmexSession> {
     });
     debug('Page state after login click: %o', pageStateAfterClick);
 
-    // Save screenshot for debugging (only in debug mode)
-    try {
-      const screenshotPath = '/tmp/amex-login-debug.png';
-      await page.screenshot({ path: screenshotPath, fullPage: true });
-      debug('Screenshot saved to: %s', screenshotPath);
-    } catch (e) {
-      debug('Could not save screenshot: %s', e);
-    }
-
     // Check for CAPTCHA and try to solve it
     const captcha = await detectRecaptcha(page);
     if (captcha) {
@@ -525,6 +516,15 @@ export async function performLogin(): Promise<AmexSession> {
       }
       debug('Timeout waiting for login result, checking current state...');
 
+      // Save screenshot for debugging on timeout
+      try {
+        const screenshotPath = '/tmp/amex-login-timeout.png';
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        debug('Timeout screenshot saved to: %s', screenshotPath);
+      } catch (screenshotError) {
+        debug('Could not save timeout screenshot: %s', screenshotError);
+      }
+
       // Check for error messages that might have appeared
       const errorText = await page
         .$eval(
@@ -617,6 +617,15 @@ export async function performLogin(): Promise<AmexSession> {
           } catch (retryError) {
             if (retryError instanceof AuthFailedError) {
               throw retryError;
+            }
+
+            // Save screenshot for debugging on retry timeout
+            try {
+              const screenshotPath = '/tmp/amex-login-retry-timeout.png';
+              await page.screenshot({ path: screenshotPath, fullPage: true });
+              debug('Retry timeout screenshot saved to: %s', screenshotPath);
+            } catch (screenshotError) {
+              debug('Could not save retry screenshot: %s', screenshotError);
             }
 
             // Check button state again after retry timeout

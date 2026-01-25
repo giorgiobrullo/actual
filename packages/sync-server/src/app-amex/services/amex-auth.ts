@@ -538,14 +538,113 @@ export async function performLogin(): Promise<AmexSession> {
         throw new AuthFailedError(errorText.trim());
       }
 
-      // Check if still on login page - might indicate blocked login
+      // Check if still on login page and if login is still in progress
       const stillOnLogin = page.url().includes('/login');
       if (stillOnLogin) {
-        // Try to find any visible error or issue
-        const pageText = await page
-          .$eval('body', el => el.innerText.substring(0, 500))
-          .catch(() => '');
-        debug('Still on login page. Page content preview: %s', pageText);
+        // Check if button is still in loading state (has spinner)
+        const loginButton = await page.$('#loginSubmit');
+        const buttonText = loginButton
+          ? await loginButton
+              .evaluate(el => el.innerHTML.trim())
+              .catch(() => '')
+          : '';
+        const isStillLoading =
+          buttonText === '&nbsp;' ||
+          buttonText.includes('spinner') ||
+          buttonText.includes('loading') ||
+          buttonText === '';
+
+        debug(
+          'Still on login page, button loading: %s, text: %s',
+          isStillLoading,
+          buttonText,
+        );
+
+        // If button is still loading, wait another timeout period
+        if (isStillLoading) {
+          debug(
+            'Login still in progress, waiting another %dms...',
+            LOGIN_TIMEOUT_MS,
+          );
+
+          try {
+            // Wait for successful redirect, 2FA, or error
+            const retryResult = await Promise.race([
+              page
+                .waitForSelector('[data-testid="challenge-options-list"]', {
+                  timeout: LOGIN_TIMEOUT_MS,
+                })
+                .then(() => '2fa'),
+              page
+                .waitForURL('**/dashboard**', { timeout: LOGIN_TIMEOUT_MS })
+                .then(() => 'dashboard'),
+              page
+                .waitForURL('**/myca/**', { timeout: LOGIN_TIMEOUT_MS })
+                .then(() => 'myca'),
+              page
+                .waitForURL('**/activity**', { timeout: LOGIN_TIMEOUT_MS })
+                .then(() => 'activity'),
+              page
+                .waitForSelector('h1:has-text("Verifica la tua identità")', {
+                  timeout: LOGIN_TIMEOUT_MS,
+                })
+                .then(() => '2fa'),
+              page
+                .waitForSelector('[data-testid="login-message-container"]', {
+                  timeout: LOGIN_TIMEOUT_MS,
+                })
+                .then(() => 'error'),
+            ]);
+
+            debug('Retry login result: %s', retryResult);
+
+            if (retryResult === 'error') {
+              const errorContainer = await page.$(
+                '[data-testid="login-message-container"]',
+              );
+              if (errorContainer) {
+                const retryErrorText = await errorContainer.textContent();
+                throw new AuthFailedError(
+                  retryErrorText?.trim() || 'Invalid username or password',
+                );
+              }
+            }
+
+            // Set is2FAPage if 2FA was detected - the flow below will handle it
+            if (retryResult === '2fa') {
+              is2FAPage = true;
+            }
+          } catch (retryError) {
+            if (retryError instanceof AuthFailedError) {
+              throw retryError;
+            }
+
+            // Check button state again after retry timeout
+            const retryButtonText = loginButton
+              ? await loginButton
+                  .evaluate(el => el.innerHTML.trim())
+                  .catch(() => '')
+              : '';
+            const stillLoading =
+              retryButtonText === '&nbsp;' ||
+              retryButtonText.includes('spinner') ||
+              retryButtonText.includes('loading') ||
+              retryButtonText === '';
+
+            debug(
+              'After retry - still loading: %s, text: %s',
+              stillLoading,
+              retryButtonText,
+            );
+
+            if (stillLoading) {
+              throw new AuthFailedError(
+                'Login timed out after extended wait - the request is still in progress. This usually happens with a slow network connection or proxy. Try again or check your connection speed.',
+              );
+            }
+            // If not loading anymore but still on login page, will be handled below
+          }
+        }
       }
     }
 
@@ -742,155 +841,23 @@ export async function performLogin(): Promise<AmexSession> {
       throw new AuthFailedError(`Login failed: ${errorText}`);
     }
 
-    // Helper to check if we're on a logged-in page
-    const checkIsLoggedIn = (url: string) =>
-      url.includes('dashboard') ||
-      url.includes('myca') ||
-      url.includes('activity') ||
-      url.includes('global.americanexpress.com');
-
     // Verify we reached a logged-in page
-    let isLoggedIn = checkIsLoggedIn(currentUrl);
+    const isLoggedIn =
+      currentUrl.includes('dashboard') ||
+      currentUrl.includes('myca') ||
+      currentUrl.includes('activity') ||
+      currentUrl.includes('global.americanexpress.com');
 
-    if (!isLoggedIn && currentUrl.includes('login')) {
-      debug('Still on login page after timeout: %s', currentUrl);
+    if (!isLoggedIn) {
+      debug('Unexpected URL after login: %s', currentUrl);
 
-      // Try to get more info about what's on the page
-      const bodyText = await page
-        .$eval('body', el => el.innerText.substring(0, 1000))
-        .catch(() => '');
-      debug('Page content: %s', bodyText);
-
-      // Check if login is still in progress or failed
-      const checkLoginButton = async () => {
-        const loginButton = await page.$('#loginSubmit');
-        const loginButtonDisabled = loginButton
-          ? await loginButton.isDisabled().catch(() => false)
-          : false;
-
-        // Check if button is still in loading state (has spinner)
-        const buttonText = loginButton
-          ? await loginButton
-              .evaluate(el => el.innerHTML.trim())
-              .catch(() => '')
-          : '';
-        const isStillLoading =
-          buttonText === '&nbsp;' ||
-          buttonText.includes('spinner') ||
-          buttonText.includes('loading') ||
-          buttonText === '';
-
-        return { loginButtonDisabled, buttonText, isStillLoading };
-      };
-
-      let { loginButtonDisabled, buttonText, isStillLoading } =
-        await checkLoginButton();
-
-      debug(
-        'Login button still present, disabled: %s, loading: %s, text: %s',
-        loginButtonDisabled,
-        isStillLoading,
-        buttonText,
-      );
-
-      // If still loading, wait another timeout period and check again
-      if (isStillLoading) {
-        debug(
-          'Login still in progress, waiting another %dms...',
-          LOGIN_TIMEOUT_MS,
-        );
-
-        try {
-          // Wait for successful redirect or error
-          const retryResult = await Promise.race([
-            page
-              .waitForURL('**/dashboard**', { timeout: LOGIN_TIMEOUT_MS })
-              .then(() => 'dashboard'),
-            page
-              .waitForURL('**/myca/**', { timeout: LOGIN_TIMEOUT_MS })
-              .then(() => 'myca'),
-            page
-              .waitForURL('**/activity**', { timeout: LOGIN_TIMEOUT_MS })
-              .then(() => 'activity'),
-            page
-              .waitForSelector('[data-testid="challenge-options-list"]', {
-                timeout: LOGIN_TIMEOUT_MS,
-              })
-              .then(() => '2fa'),
-            page
-              .waitForSelector('[data-testid="login-message-container"]', {
-                timeout: LOGIN_TIMEOUT_MS,
-              })
-              .then(() => 'error'),
-          ]);
-
-          debug('Retry login result: %s', retryResult);
-
-          if (retryResult === 'error') {
-            const errorContainer = await page.$(
-              '[data-testid="login-message-container"]',
-            );
-            if (errorContainer) {
-              const errorText = await errorContainer.textContent();
-              throw new AuthFailedError(
-                errorText?.trim() || 'Invalid username or password',
-              );
-            }
-          }
-
-          if (retryResult === '2fa') {
-            // 2FA detected after extended wait - we've already passed the 2FA handler
-            // Tell user to try again so the 2FA flow can handle it properly
-            throw new AuthFailedError(
-              '2FA verification required. The login took longer than expected due to slow proxy. Please try again - the next attempt should proceed to 2FA verification.',
-            );
-          }
-
-          // Update currentUrl after successful retry
-          currentUrl = page.url();
-          isLoggedIn = checkIsLoggedIn(currentUrl);
-          debug(
-            'Retry completed, new URL: %s, isLoggedIn: %s',
-            currentUrl,
-            isLoggedIn,
-          );
-        } catch (retryError) {
-          if (retryError instanceof AuthFailedError) {
-            throw retryError;
-          }
-
-          // Check button state again after retry timeout
-          ({ loginButtonDisabled, buttonText, isStillLoading } =
-            await checkLoginButton());
-
-          debug(
-            'After retry - disabled: %s, loading: %s, text: %s',
-            loginButtonDisabled,
-            isStillLoading,
-            buttonText,
-          );
-
-          if (isStillLoading) {
-            throw new AuthFailedError(
-              'Login timed out after extended wait - the request is still in progress. This usually happens when using a very slow proxy connection. Try again or check your proxy/network speed.',
-            );
-          }
-
-          throw new AuthFailedError(
-            'Login failed - page did not redirect. This often happens when Amex detects a datacenter/VPS IP address. Try configuring a proxy to route traffic through a residential IP (e.g., your home network via WireGuard/SOCKS5). Could also be incorrect credentials or rate limiting.',
-          );
-        }
-      } else {
-        // Button not loading but still on login page - login actually failed
+      if (currentUrl.includes('login')) {
+        // Still on login page - login failed
         throw new AuthFailedError(
           'Login failed - page did not redirect. This often happens when Amex detects a datacenter/VPS IP address. Try configuring a proxy to route traffic through a residential IP (e.g., your home network via WireGuard/SOCKS5). Could also be incorrect credentials or rate limiting.',
         );
       }
-    }
 
-    // Final check - if still not logged in after all retries
-    if (!isLoggedIn) {
-      debug('Unexpected URL after login: %s', currentUrl);
       throw new AuthFailedError('Login failed - unexpected redirect');
     }
 

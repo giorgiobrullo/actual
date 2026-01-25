@@ -92,10 +92,26 @@ async function getAccountOldestTransaction(id): Promise<TransactionEntity> {
   ).data?.[0];
 }
 
+async function hasAccountBeenBankSynced(
+  id: AccountEntity['id'],
+): Promise<boolean> {
+  // Check if there are any transactions with imported_id set (from bank sync)
+  // Manual transactions don't have imported_id, so this tells us if initial sync has been done.
+  // Note: If the account was previously synced with another integration (e.g., GoCardless, SimpleFIN),
+  // those transactions will also have imported_id set, so switching to Enable Banking won't trigger
+  // the initial sync with strategy=longest. This is an accepted limitation since those accounts
+  // already have historical transaction data from the previous integration.
+  const result = await db.first(
+    `SELECT 1 FROM v_transactions WHERE account = ? AND imported_id IS NOT NULL LIMIT 1`,
+    [id],
+  );
+  return result !== null;
+}
+
 async function getAccountSyncStartDate(id) {
-  // Enable Banking may support more than 90 days depending on the bank.
-  // Try to get up to 20 years of data - bank will return what it can.
-  const dates = [monthUtils.subDays(monthUtils.currentDay(), 365 * 20)];
+  // Request up to 1 year of transaction history.
+  // For initial sync with Enable Banking, strategy=longest is used to fetch all available history.
+  const dates = [monthUtils.subDays(monthUtils.currentDay(), 365)];
 
   const oldestTransaction = await getAccountOldestTransaction(id);
 
@@ -1009,10 +1025,14 @@ export async function syncAccount(
       newAccount,
     );
   } else if (acctRow.account_sync_source === 'enablebanking') {
+    // For Enable Banking, check if there are any bank-synced transactions (with imported_id)
+    // Manual transactions don't count - we want to know if initial bank sync was done
+    const hasBankSyncedTransactions = await hasAccountBeenBankSynced(id);
     download = await downloadEnableBankingTransactions(
       acctId,
       syncStartDate,
       bankId,
+      !hasBankSyncedTransactions, // Use strategy=longest for initial sync to fetch all historical data
     );
   } else if (acctRow.account_sync_source === 'amex') {
     download = await downloadAmexTransactions(acctId, syncStartDate);

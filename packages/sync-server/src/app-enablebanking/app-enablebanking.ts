@@ -117,17 +117,54 @@ post('/get_accounts', async (req: Request) => {
 });
 
 post('/transactions', async (req: Request) => {
-  const { startDate, endDate, account_id, bank_id } = req.body;
+  const { startDate, endDate, account_id, bank_id, isInitialSync } = req.body;
 
   if (!account_id) {
     throw badRequestVariableError('account_id', '/enablebanking/transactions');
   }
-  const transactions = await enableBankingservice.getTransactions(
-    account_id,
-    startDate,
-    endDate,
-    bank_id,
-  );
+
+  let transactions;
+  if (isInitialSync) {
+    // For initial sync: use strategy=longest to get all historical data,
+    // then also fetch with default strategy to get pending transactions
+    // (strategy=longest doesn't return pending transactions)
+    const [historicalTransactions, pendingTransactions] = await Promise.all([
+      enableBankingservice.getTransactions(
+        account_id,
+        startDate,
+        endDate,
+        bank_id,
+        'longest',
+      ),
+      enableBankingservice.getTransactions(
+        account_id,
+        startDate,
+        endDate,
+        bank_id,
+        // No strategy = default, which returns pending transactions
+      ),
+    ]);
+
+    // Merge and deduplicate by transaction date+amount+payeeName
+    // (since transaction IDs from different strategies might differ)
+    const seen = new Set<string>();
+    transactions = [];
+
+    for (const tx of [...historicalTransactions, ...pendingTransactions]) {
+      const key = `${tx.date}|${tx.amount}|${tx.payeeName}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        transactions.push(tx);
+      }
+    }
+  } else {
+    transactions = await enableBankingservice.getTransactions(
+      account_id,
+      startDate,
+      endDate,
+      bank_id,
+    );
+  }
 
   const currentBalance =
     await enableBankingservice.getCurrentBalance(account_id);

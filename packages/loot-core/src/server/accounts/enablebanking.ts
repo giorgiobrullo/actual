@@ -127,16 +127,20 @@ export async function downloadEnableBankingTransactions(
   acctId: AccountEntity['id'],
   startDate: string,
   bankId: string,
+  isInitialSync?: boolean,
 ) {
   const userToken = await asyncStorage.getItem('user-token');
   if (!userToken) return;
 
-  logger.log(`Pulling transactions from enablebanking since ${startDate}`);
+  logger.log(
+    `Pulling transactions from enablebanking since ${startDate}${isInitialSync ? ' (initial sync with strategy=longest)' : ''}`,
+  );
 
   const { error, data } = await post('/transactions', {
     account_id: acctId,
     startDate,
     bank_id: bankId,
+    isInitialSync,
   });
   if (error) {
     logger.log('got error', error);

@@ -56,6 +56,7 @@ export type TransactionsBody = {
   startDate?: string;
   endDate?: string;
   bank_id?: string;
+  isInitialSync?: boolean;
 };
 
 export type EnableBankingBank = {

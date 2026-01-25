@@ -356,6 +356,7 @@ export const enableBankingservice = {
     date_from?: string,
     date_to?: string,
     bank_id?: string,
+    strategy?: components['schemas']['TransactionsFetchStrategy'],
   ): Promise<Transaction[]> => {
     const client = enableBankingservice.getClient();
     const query: operations['get_account_transactions_accounts__account_id__transactions_get']['parameters']['query'] =
@@ -365,6 +366,9 @@ export const enableBankingservice = {
     }
     if (date_to) {
       query.date_to = date_to;
+    }
+    if (strategy) {
+      query.strategy = strategy;
     }
 
     const transactions: components['schemas']['Transaction'][] = [];

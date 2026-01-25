@@ -29,7 +29,7 @@ export type CartaYouErrorCode =
   | 'CARTAYOU_SESSION_EXPIRED'
   | 'INTERNAL_ERROR'
   | 'NOT_FOUND'
-  | 'TIME_OUT'
+  | 'TIMED_OUT'
   | 'SMS_2FA_REQUIRED';
 
 export type CartaYouErrorInterface = {

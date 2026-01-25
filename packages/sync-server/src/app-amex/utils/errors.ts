@@ -48,7 +48,7 @@ export const SessionExpiredError = makeErrorClass('AMEX_SESSION_EXPIRED');
 export const TwoFactorRequiredError = makeErrorClass('AMEX_2FA_REQUIRED');
 export const BadRequestError = makeErrorClass('BAD_REQUEST');
 export const ResourceNotFoundError = makeErrorClass('NOT_FOUND');
-export const TimeoutError = makeErrorClass('TIME_OUT');
+export const TimeoutError = makeErrorClass('TIMED_OUT');
 
 export function badRequestVariableError(name: string, endpoint: string) {
   return new BadRequestError(

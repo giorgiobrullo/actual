@@ -98,7 +98,7 @@ async function pollAuth({
       logger.log('Time out reached after 10 minutes');
       return {
         error: {
-          error_code: 'TIME_OUT',
+          error_code: 'TIMED_OUT',
           error_type: 'Time out has been reached',
         },
       };
@@ -109,7 +109,7 @@ async function pollAuth({
 
   return {
     error: {
-      error_code: 'TIME_OUT',
+      error_code: 'TIMED_OUT',
       error_type: 'Polling was stopped',
     },
   };

@@ -41,7 +41,7 @@ export type AmexErrorCode =
   | 'INTERNAL_ERROR'
   | 'BAD_REQUEST'
   | 'NOT_FOUND'
-  | 'TIME_OUT';
+  | 'TIMED_OUT';
 
 export type AmexErrorInterface = {
   error_code: AmexErrorCode;

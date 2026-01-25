@@ -36,7 +36,7 @@ function renderError(
   t: ReturnType<typeof useTranslation>['t'],
 ) {
   const error_messages: Partial<Record<EnableBankingErrorCode, string>> = {
-    TIME_OUT: t('Timed out. Please try again.'),
+    TIMED_OUT: t('Timed out. Please try again.'),
     ENABLEBANKING_APPLICATION_INACTIVE: t(
       'Your Enable Banking application is inactive. Please reconfigure.',
     ),

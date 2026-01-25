@@ -36,7 +36,7 @@ export type CartaYouErrorCode =
   | 'INTERNAL_ERROR'
   | 'BAD_REQUEST'
   | 'NOT_FOUND'
-  | 'TIME_OUT';
+  | 'TIMED_OUT';
 
 export type CartaYouErrorInterface = {
   error_code: CartaYouErrorCode;

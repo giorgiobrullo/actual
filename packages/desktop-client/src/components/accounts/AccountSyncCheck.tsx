@@ -11,6 +11,8 @@ import { View } from '@actual-app/components/view';
 import { type AccountEntity } from 'loot-core/types/models';
 
 import { unlinkAccount } from '@desktop-client/accounts/accountsSlice';
+import { authorizeAmexSession } from '@desktop-client/banksync/amex';
+import { authorizeCartaYouSession } from '@desktop-client/banksync/cartayou';
 import { authorizeEnableBankingSession } from '@desktop-client/banksync/enablebanking';
 import { authorizeBank } from '@desktop-client/banksync/gocardless';
 import { Link } from '@desktop-client/components/common/Link';
@@ -47,9 +49,6 @@ function useErrorMessage() {
       case 'RATE_LIMIT_EXCEEDED':
         return t('Rate limit exceeded for this item. Please try again later.');
 
-      case 'TIMED_OUT':
-        return t('The request timed out. Please try again later.');
-
       case 'INVALID_ACCESS_TOKEN':
         return t(
           'Your SimpleFIN Access Token is no longer valid. Please reset and generate a new token.',
@@ -71,6 +70,89 @@ function useErrorMessage() {
 
       case 'ENABLEBANKING_SESSION_CLOSED':
         return <Trans>The Enable Banking session has expired.</Trans>;
+
+      case 'ENABLEBANKING_SECRETS_INVALID':
+        return (
+          <Trans>
+            Enable Banking is not properly configured. Please check your server
+            settings.
+          </Trans>
+        );
+
+      case 'ENABLEBANKING_APPLICATION_INACTIVE':
+        return (
+          <Trans>
+            The Enable Banking application is inactive. Please contact your
+            administrator.
+          </Trans>
+        );
+
+      case 'AMEX_NOT_CONFIGURED':
+        return (
+          <Trans>
+            American Express is not configured. Please set up your credentials
+            in the Amex setup modal.
+          </Trans>
+        );
+
+      case 'AMEX_AUTH_FAILED':
+        return (
+          <Trans>
+            American Express authentication failed. This often happens when Amex
+            detects a datacenter IP. Try configuring a proxy or check your
+            credentials.
+          </Trans>
+        );
+
+      case 'AMEX_SESSION_EXPIRED':
+        return (
+          <Trans>
+            Your American Express session has expired. Please log in again.
+          </Trans>
+        );
+
+      case 'AMEX_2FA_REQUIRED':
+        return (
+          <Trans>
+            American Express requires two-factor authentication. Please
+            configure IMAP settings to automatically retrieve the verification
+            code.
+          </Trans>
+        );
+
+      case 'CARTAYOU_NOT_CONFIGURED':
+        return (
+          <Trans>
+            Carta You is not configured. Please set up your credentials in the
+            Carta You setup modal.
+          </Trans>
+        );
+
+      case 'AUTH_FAILED':
+        return (
+          <Trans>
+            Authentication failed. Please check your credentials and try again.
+          </Trans>
+        );
+
+      case 'SMS_REQUIRED':
+        return (
+          <Trans>
+            SMS verification is required but could not be completed
+            automatically. Please try again.
+          </Trans>
+        );
+
+      case 'TIMED_OUT':
+        return <Trans>The request timed out. Please try again later.</Trans>;
+
+      case 'INTERNAL_ERROR':
+        return (
+          <Trans>
+            An internal server error occurred. Please try again later or contact
+            support.
+          </Trans>
+        );
 
       default:
     }
@@ -122,6 +204,12 @@ export function AccountSyncCheck() {
             //TODO: skip choosing the bank since we have that info
             authorizeEnableBankingSession(dispatch, acc, () => unlink(acc));
             return;
+          case 'amex':
+            authorizeAmexSession(dispatch, acc, () => unlink(acc));
+            return;
+          case 'cartayou':
+            authorizeCartaYouSession(dispatch, acc, () => unlink(acc));
+            return;
           default:
             break;
         }
@@ -147,9 +235,16 @@ export function AccountSyncCheck() {
   const { type, code } = error;
   console.log(error);
   const showAuth =
+    // GoCardless/Plaid errors
     (type === 'ITEM_ERROR' && code === 'ITEM_LOGIN_REQUIRED') ||
     (type === 'INVALID_INPUT' && code === 'INVALID_ACCESS_TOKEN') ||
-    type === 'ENABLEBANKING_SESSION_CLOSED';
+    // Enable Banking errors
+    type === 'ENABLEBANKING_SESSION_CLOSED' ||
+    // Amex errors
+    type === 'AMEX_AUTH_FAILED' ||
+    type === 'AMEX_SESSION_EXPIRED' ||
+    // CartaYou errors
+    type === 'AUTH_FAILED';
 
   return (
     <View>

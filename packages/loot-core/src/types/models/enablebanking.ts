@@ -39,7 +39,7 @@ export type EnableBankingErrorCode =
   | 'BAD_REQUEST'
   | 'NOT_READY'
   | 'NOT_FOUND'
-  | 'TIME_OUT';
+  | 'TIMED_OUT';
 
 export type EnableBankingErrorInterface = {
   error_code: EnableBankingErrorCode;

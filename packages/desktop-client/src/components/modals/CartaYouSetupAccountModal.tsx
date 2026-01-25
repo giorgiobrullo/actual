@@ -32,7 +32,7 @@ function renderError(
   t: ReturnType<typeof useTranslation>['t'],
 ) {
   const error_messages: Partial<Record<CartaYouErrorCode, string>> = {
-    TIME_OUT: t('Timed out. Please try again.'),
+    TIMED_OUT: t('Timed out. Please try again.'),
     CARTAYOU_NOT_CONFIGURED: t(
       'Carta You is not configured. Please enter your credentials.',
     ),

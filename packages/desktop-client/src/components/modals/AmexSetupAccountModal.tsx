@@ -31,7 +31,7 @@ function renderError(
   t: ReturnType<typeof useTranslation>['t'],
 ) {
   const error_messages: Partial<Record<AmexErrorCode, string>> = {
-    TIME_OUT: t('Timed out. Please try again.'),
+    TIMED_OUT: t('Timed out. Please try again.'),
     AMEX_NOT_CONFIGURED: t(
       'Amex is not configured. Please enter your credentials.',
     ),

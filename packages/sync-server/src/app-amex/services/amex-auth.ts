@@ -103,9 +103,19 @@ export async function performLogin(): Promise<AmexSession> {
       headless: true,
     };
 
+    // Log configuration status
+    debug(
+      'Configuration: proxy=%s, captcha=%s, imap=%s',
+      proxyUrl ? proxyUrl : 'none',
+      isCaptchaServiceConfigured() ? 'configured' : 'not configured',
+      isImapConfigured() ? 'configured' : 'not configured',
+    );
+
     if (proxyUrl) {
-      debug('Using proxy: %s', proxyUrl);
+      debug('Launching browser with SOCKS proxy: %s', proxyUrl);
       launchOptions.proxy = { server: proxyUrl };
+    } else {
+      debug('Launching browser without proxy (using direct connection)');
     }
 
     browser = await chromium.launch(launchOptions);

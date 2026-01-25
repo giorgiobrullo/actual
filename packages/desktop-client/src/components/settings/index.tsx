@@ -60,7 +60,7 @@ function About() {
         <Trans>
           <strong>Actual</strong> is a super fast privacy-focused app for
           managing your finances. This is an Italian fork with additional
-          features for Italian banks maintan by giorgiobrullo.
+          features for Italian banks maintained by giorgiobrullo.
         </Trans>
       </Text>
       <View

@@ -100,13 +100,10 @@ export function handleErrorResponse(
       return new SecretsInvalidError();
     case 'WRONG_REQUEST_PARAMETERS':
     case 'WRONG_SESSION_STATUS':
-    case 'WRONG_DATE_INTERVAL':
-    case 'WRONG_TRANSACTIONS_PERIOD':
     case 'WRONG_CREDENTIALS_PROVIDED':
     case 'INVALID_ACCOUNT_ID':
     case 'INVALID_HOST':
     case 'INVALID_PAYMENT':
-    case 'REDIRECT_URI_NOT_ALLOWED':
     case 'WEBHOOK_URI_NOT_ALLOWED':
     case 'UNTRUSTED_PAYMENT_PARTY':
       console.warn(
@@ -115,6 +112,29 @@ export function handleErrorResponse(
       return new EnableBankingError(
         'INTERNAL_ERROR',
         'Something went wrong while using the Enable Banking API. Please try again later.',
+      );
+    case 'REDIRECT_URI_NOT_ALLOWED': {
+      console.warn(
+        `Enable Banking API returned an error: ${response.error} - ${response.message}`,
+      );
+      const urlMatch = response.message?.match(/https?:\/\/[^\s]+/)?.[0];
+      // Enable Banking requires HTTPS - if the URL is HTTP, that's the problem
+      if (urlMatch && urlMatch.startsWith('http://')) {
+        return new EnableBankingError(
+          'BAD_REQUEST',
+          'Enable Banking requires HTTPS. Please access the app via HTTPS instead of HTTP.',
+        );
+      }
+      return new EnableBankingError(
+        'BAD_REQUEST',
+        `The redirect URI is not allowed. Please add "${urlMatch || '{your-origin}/enablebanking/auth_callback'}" to your Enable Banking application settings.`,
+      );
+    }
+    case 'WRONG_DATE_INTERVAL':
+    case 'WRONG_TRANSACTIONS_PERIOD':
+      return new EnableBankingError(
+        'BAD_REQUEST',
+        'Your bank does not support the requested transaction history period. Some banks only provide 90 days of history.',
       );
     default:
       // For all other errors, we throw a generic EnableBankingError.

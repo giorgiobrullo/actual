@@ -9,12 +9,7 @@ export type AmexEndpoints = {
   '/deconfigure': Endpoint<undefined, void>;
   '/test-imap': Endpoint<TestImapBody, TestImapResponse>;
   '/debug-imap': Endpoint<DebugImapBody, DebugImapResponse>;
-  '/configure-captcha': Endpoint<
-    ConfigureCaptchaBody,
-    ConfigureCaptchaResponse
-  >;
   '/test-captcha': Endpoint<TestCaptchaBody, TestCaptchaResponse>;
-  '/configure-proxy': Endpoint<ConfigureProxyBody, ConfigureProxyResponse>;
   '/test-proxy': Endpoint<TestProxyBody, TestProxyResponse>;
 };
 
@@ -60,6 +55,8 @@ export type ConfigureBody = {
   username: string | null;
   password: string | null;
   imap?: ImapConfig;
+  proxy?: string | null;
+  captchaApiKey?: string | null;
 };
 
 export type TestImapBody = {
@@ -107,14 +104,6 @@ export type AmexStatusResponse = {
   proxyConfigured?: boolean;
 };
 
-export type ConfigureCaptchaBody = {
-  apiKey: string;
-};
-
-export type ConfigureCaptchaResponse = {
-  success: boolean;
-};
-
 export type TestCaptchaBody = {
   apiKey: string;
 };
@@ -122,14 +111,6 @@ export type TestCaptchaBody = {
 export type TestCaptchaResponse = {
   success: boolean;
   balance?: number;
-};
-
-export type ConfigureProxyBody = {
-  proxy: string | null; // e.g., "socks5://localhost:1055" or null to clear
-};
-
-export type ConfigureProxyResponse = {
-  success: boolean;
 };
 
 export type TestProxyBody = {

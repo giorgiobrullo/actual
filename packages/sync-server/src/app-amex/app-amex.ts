@@ -56,23 +56,46 @@ function post<T extends keyof AmexEndpoints>(
 
 /**
  * POST /configure
- * Configure Amex credentials (username/password) and optionally IMAP for 2FA
+ * Configure Amex credentials (username/password) and optionally IMAP, proxy, and captcha.
+ * If credentials are already configured, you can omit username/password to only update
+ * proxy or captcha settings.
  */
 post('/configure', async req => {
   const body = req.body as ConfigureBody;
 
-  if (!body.username) {
-    throw badRequestVariableError('username', '/configure');
-  }
-  if (!body.password) {
-    throw badRequestVariableError('password', '/configure');
+  // Check if we need to update credentials
+  const hasCredentials = body.username && body.password;
+  const isAlreadyConfigured = amexServices.isConfigured();
+
+  // Require credentials if not already configured
+  if (!hasCredentials && !isAlreadyConfigured) {
+    if (!body.username) {
+      throw badRequestVariableError('username', '/configure');
+    }
+    if (!body.password) {
+      throw badRequestVariableError('password', '/configure');
+    }
   }
 
-  amexServices.configure(body.username, body.password, body.imap);
+  // Configure credentials and IMAP if provided
+  if (hasCredentials) {
+    amexServices.configure(body.username!, body.password!, body.imap);
+  }
 
-  // Optionally test the credentials by attempting login
-  // This is commented out for now as it adds latency
-  // await performLogin();
+  // Configure proxy if provided
+  if (body.proxy !== undefined) {
+    amexServices.configureProxy(body.proxy);
+  }
+
+  // Configure captcha API key if provided
+  if (body.captchaApiKey !== undefined) {
+    if (body.captchaApiKey) {
+      configureCaptchaService(body.captchaApiKey);
+    } else {
+      // null means clear the captcha config
+      configureCaptchaService('');
+    }
+  }
 });
 
 /**
@@ -87,21 +110,6 @@ post('/status', async () => {
     captchaSolverConfigured: isCaptchaServiceConfigured(),
     proxyConfigured: amexServices.isProxyConfigured(),
   };
-});
-
-/**
- * POST /configure-captcha
- * Configure 2Captcha API key for solving CAPTCHAs
- */
-post('/configure-captcha', async req => {
-  const { apiKey } = req.body as { apiKey?: string };
-
-  if (!apiKey) {
-    throw badRequestVariableError('apiKey', '/configure-captcha');
-  }
-
-  configureCaptchaService(apiKey);
-  return { success: true };
 });
 
 /**
@@ -122,17 +130,6 @@ post('/test-captcha', async req => {
   }
 
   return { success: true, balance: result.balance };
-});
-
-/**
- * POST /configure-proxy
- * Configure proxy for browser automation (e.g., socks5://10.0.0.1:1080)
- */
-post('/configure-proxy', async req => {
-  const { proxy } = req.body as { proxy?: string | null };
-
-  amexServices.configureProxy(proxy || null);
-  return { success: true };
 });
 
 /**

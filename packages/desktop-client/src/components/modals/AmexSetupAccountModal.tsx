@@ -317,18 +317,27 @@ export function AmexSetupAccountModal({
     setIsLoggingIn(true);
 
     try {
-      // Save captcha API key if provided
-      if (captchaApiKey) {
-        await send('amex-configure-captcha', { apiKey: captchaApiKey });
-        setIsCaptchaConfigured(true);
-        setCaptchaApiKey('');
-      }
-
-      // Save proxy if provided
-      if (proxyUrl) {
-        await send('amex-configure-proxy', { proxy: proxyUrl });
-        setIsProxyConfigured(true);
-        setProxyUrl('');
+      // Update captcha/proxy settings if provided (credentials already saved)
+      if (captchaApiKey || proxyUrl) {
+        const configResult = await send('amex-configure', {
+          username: null,
+          password: null,
+          proxy: proxyUrl || undefined,
+          captchaApiKey: captchaApiKey || undefined,
+        });
+        if (configResult?.error) {
+          setError(configResult.error);
+          setIsLoggingIn(false);
+          return;
+        }
+        if (captchaApiKey) {
+          setIsCaptchaConfigured(true);
+          setCaptchaApiKey('');
+        }
+        if (proxyUrl) {
+          setIsProxyConfigured(true);
+          setProxyUrl('');
+        }
       }
 
       const loginResult = await send('amex-login');
@@ -376,11 +385,13 @@ export function AmexSetupAccountModal({
             }
           : undefined;
 
-      // First configure the credentials
+      // Configure all settings in one call
       const configResult = await send('amex-configure', {
         username,
         password,
         imap,
+        proxy: proxyUrl || undefined,
+        captchaApiKey: captchaApiKey || undefined,
       });
       if (configResult?.error) {
         setError(configResult.error);
@@ -388,16 +399,12 @@ export function AmexSetupAccountModal({
         return;
       }
 
-      // Save captcha API key if provided
+      // Update UI state for configured options
       if (captchaApiKey) {
-        await send('amex-configure-captcha', { apiKey: captchaApiKey });
         setIsCaptchaConfigured(true);
         setCaptchaApiKey('');
       }
-
-      // Save proxy if provided
       if (proxyUrl) {
-        await send('amex-configure-proxy', { proxy: proxyUrl });
         setIsProxyConfigured(true);
         setProxyUrl('');
       }

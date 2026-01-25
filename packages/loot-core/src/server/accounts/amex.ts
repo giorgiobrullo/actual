@@ -38,6 +38,8 @@ async function configure({
   username,
   password,
   imap,
+  proxy,
+  captchaApiKey,
 }: {
   username: string | null;
   password: string | null;
@@ -47,11 +49,15 @@ async function configure({
     user: string;
     password: string;
   };
+  proxy?: string | null;
+  captchaApiKey?: string | null;
 }) {
   return await post('/configure', {
     username,
     password,
     imap,
+    proxy,
+    captchaApiKey,
   });
 }
 
@@ -112,16 +118,8 @@ async function debugImap({
   });
 }
 
-async function configureCaptcha({ apiKey }: { apiKey: string }) {
-  return await post('/configure-captcha', { apiKey });
-}
-
 async function testCaptcha({ apiKey }: { apiKey: string }) {
   return await post('/test-captcha', { apiKey });
-}
-
-async function configureProxy({ proxy }: { proxy: string | null }) {
-  return await post('/configure-proxy', { proxy });
 }
 
 async function testProxy({ proxy }: { proxy: string }) {
@@ -162,9 +160,7 @@ export type AccountHandlers = {
   'amex-deconfigure': typeof deconfigure;
   'amex-test-imap': typeof testImap;
   'amex-debug-imap': typeof debugImap;
-  'amex-configure-captcha': typeof configureCaptcha;
   'amex-test-captcha': typeof testCaptcha;
-  'amex-configure-proxy': typeof configureProxy;
   'amex-test-proxy': typeof testProxy;
 };
 
@@ -176,7 +172,5 @@ app.method('amex-accounts', getAccounts);
 app.method('amex-deconfigure', deconfigure);
 app.method('amex-test-imap', testImap);
 app.method('amex-debug-imap', debugImap);
-app.method('amex-configure-captcha', configureCaptcha);
 app.method('amex-test-captcha', testCaptcha);
-app.method('amex-configure-proxy', configureProxy);
 app.method('amex-test-proxy', testProxy);

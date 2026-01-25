@@ -116,6 +116,8 @@ export type Modal =
       name: 'enablebanking-setup-account';
       options: {
         onSuccess: (data: EnableBankingToken) => Promise<void>;
+        initialCountry?: string; // Pre-select this country (e.g., "IT") for re-authorization
+        initialAspsp?: string; // Pre-select this bank name (e.g., "ING") for re-authorization
       };
     }
   | {

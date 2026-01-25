@@ -87,6 +87,19 @@ export function authorizeEnableBankingSession(
   account?: AccountEntity,
   onUnlink?: () => void,
 ) {
+  // Parse bankSyncId to get country and bank name
+  // Format is "COUNTRY_BANKNAME" (e.g., "IT_ING" or "NL_ABN_AMRO")
+  let initialCountry: string | undefined;
+  let initialAspsp: string | undefined;
+
+  if (account?.bankSyncId) {
+    const underscoreIndex = account.bankSyncId.indexOf('_');
+    if (underscoreIndex > 0) {
+      initialCountry = account.bankSyncId.substring(0, underscoreIndex);
+      initialAspsp = account.bankSyncId.substring(underscoreIndex + 1);
+    }
+  }
+
   dispatch(
     pushModal({
       modal: {
@@ -98,6 +111,9 @@ export function authorizeEnableBankingSession(
             }
             selectEnableBankingAccounts(dispatch, token, account);
           },
+          // Pre-select country and bank for re-authorization
+          initialCountry,
+          initialAspsp,
         },
       },
     }),

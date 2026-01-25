@@ -353,6 +353,8 @@ type EnableBankingSetupAccountModalProps = Extract<
 
 export function EnableBankingSetupAccountModal({
   onSuccess,
+  initialCountry,
+  initialAspsp,
 }: EnableBankingSetupAccountModalProps) {
   const { t } = useTranslation();
 
@@ -393,6 +395,8 @@ export function EnableBankingSetupAccountModal({
     case 'selectingAspsp':
       component = (
         <AspspSelector
+          init_country={initialCountry}
+          init_aspsp={initialAspsp}
           onComplete={(response: EnableBankingAuthenticationStartResponse) => {
             setAuthenticationStartResponse(response);
             setPhase('polling');

@@ -201,7 +201,6 @@ export function AccountSyncCheck() {
             authorizeBank(dispatch);
             return;
           case 'enablebanking':
-            //TODO: skip choosing the bank since we have that info
             authorizeEnableBankingSession(dispatch, acc, () => unlink(acc));
             return;
           case 'amex':

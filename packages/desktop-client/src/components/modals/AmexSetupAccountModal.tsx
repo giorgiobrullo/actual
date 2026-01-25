@@ -110,6 +110,16 @@ export function AmexSetupAccountModal({
     message: string;
   } | null>(null);
 
+  // Proxy state
+  const [showProxyConfig, setShowProxyConfig] = useState(false);
+  const [proxyUrl, setProxyUrl] = useState('');
+  const [isProxyConfigured, setIsProxyConfigured] = useState(false);
+  const [isTestingProxy, setIsTestingProxy] = useState(false);
+  const [proxyTestResult, setProxyTestResult] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
+
   // Check if credentials are already configured on mount
   useEffect(() => {
     const checkStatus = async () => {
@@ -120,6 +130,9 @@ export function AmexSetupAccountModal({
         }
         if (result?.data?.captchaSolverConfigured) {
           setIsCaptchaConfigured(true);
+        }
+        if (result?.data?.proxyConfigured) {
+          setIsProxyConfigured(true);
         }
       } catch {
         // Ignore errors, just show the form
@@ -251,6 +264,53 @@ export function AmexSetupAccountModal({
     }
   };
 
+  const handleTestProxy = async () => {
+    if (!proxyUrl) {
+      setProxyTestResult({
+        success: false,
+        message: t('Please enter a proxy URL'),
+      });
+      return;
+    }
+
+    setIsTestingProxy(true);
+    setProxyTestResult(null);
+
+    try {
+      const result = await send('amex-test-proxy', {
+        proxy: proxyUrl,
+      });
+
+      if (result?.error) {
+        setProxyTestResult({
+          success: false,
+          message: result.error.error_type || t('Test failed'),
+        });
+      } else if (result?.data) {
+        if (result.data.success) {
+          setProxyTestResult({
+            success: true,
+            message: t('Proxy working. Exit IP: {{ip}}', {
+              ip: result.data.ip,
+            }),
+          });
+        } else {
+          setProxyTestResult({
+            success: false,
+            message: result.data.message || t('Test failed'),
+          });
+        }
+      }
+    } catch (err) {
+      setProxyTestResult({
+        success: false,
+        message: String(err),
+      });
+    } finally {
+      setIsTestingProxy(false);
+    }
+  };
+
   // Login with saved credentials (no need to re-enter)
   const handleLoginWithSaved = async () => {
     setError(null);
@@ -262,6 +322,13 @@ export function AmexSetupAccountModal({
         await send('amex-configure-captcha', { apiKey: captchaApiKey });
         setIsCaptchaConfigured(true);
         setCaptchaApiKey('');
+      }
+
+      // Save proxy if provided
+      if (proxyUrl) {
+        await send('amex-configure-proxy', { proxy: proxyUrl });
+        setIsProxyConfigured(true);
+        setProxyUrl('');
       }
 
       const loginResult = await send('amex-login');
@@ -326,6 +393,13 @@ export function AmexSetupAccountModal({
         await send('amex-configure-captcha', { apiKey: captchaApiKey });
         setIsCaptchaConfigured(true);
         setCaptchaApiKey('');
+      }
+
+      // Save proxy if provided
+      if (proxyUrl) {
+        await send('amex-configure-proxy', { proxy: proxyUrl });
+        setIsProxyConfigured(true);
+        setProxyUrl('');
       }
 
       // Then attempt login
@@ -744,6 +818,111 @@ export function AmexSetupAccountModal({
                               >
                                 {captchaTestResult.success ? '✓ ' : '✗ '}
                                 {captchaTestResult.message}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Proxy Configuration */}
+                    <View style={{ marginTop: 15 }}>
+                      <Button
+                        variant="bare"
+                        onPress={() => setShowProxyConfig(!showProxyConfig)}
+                        style={{ padding: 0, fontSize: 13 }}
+                      >
+                        {showProxyConfig
+                          ? t('▼ Hide proxy settings')
+                          : t('▶ Configure proxy (optional)')}
+                      </Button>
+
+                      {showProxyConfig && (
+                        <View
+                          style={{
+                            marginTop: 10,
+                            padding: 10,
+                            backgroundColor: theme.tableRowBackgroundHover,
+                            borderRadius: 4,
+                          }}
+                        >
+                          <Text style={{ fontSize: 13, marginBottom: 10 }}>
+                            <Trans>
+                              If you're running on a VPS or cloud server, Amex
+                              may block or flag login attempts from datacenter
+                              IP addresses. Configure a proxy to route browser
+                              traffic through your home IP instead (e.g., via
+                              WireGuard or Tailscale VPN with a SOCKS5 proxy).
+                            </Trans>
+                          </Text>
+
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              marginBottom: 10,
+                              color: theme.pageTextSubdued,
+                            }}
+                          >
+                            <Trans>
+                              Example: socks5://10.0.0.1:1080 (your home machine
+                              running a SOCKS5 proxy over VPN)
+                            </Trans>
+                          </Text>
+
+                          {isProxyConfigured && (
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                marginBottom: 10,
+                                color: theme.noticeTextLight,
+                              }}
+                            >
+                              ✓ <Trans>Proxy is configured</Trans>
+                            </Text>
+                          )}
+
+                          <FormField>
+                            <FormLabel
+                              title={t('Proxy URL')}
+                              htmlFor="amex-proxy-url"
+                            />
+                            <Input
+                              id="amex-proxy-url"
+                              type="text"
+                              value={proxyUrl}
+                              onChangeValue={setProxyUrl}
+                              placeholder={
+                                isProxyConfigured
+                                  ? t('Enter new URL to update')
+                                  : t('socks5://host:port or http://host:port')
+                              }
+                              disabled={isLoggingIn}
+                            />
+                          </FormField>
+
+                          <View style={{ marginTop: 10 }}>
+                            <ButtonWithLoading
+                              variant="bare"
+                              style={{ padding: '5px 10px', fontSize: 13 }}
+                              onPress={handleTestProxy}
+                              isLoading={isTestingProxy}
+                              isDisabled={isLoggingIn || !proxyUrl}
+                            >
+                              <Trans>Test Proxy</Trans>
+                            </ButtonWithLoading>
+
+                            {proxyTestResult && (
+                              <Text
+                                style={{
+                                  marginTop: 8,
+                                  fontSize: 13,
+                                  color: proxyTestResult.success
+                                    ? theme.noticeTextLight
+                                    : theme.errorText,
+                                }}
+                              >
+                                {proxyTestResult.success ? '✓ ' : '✗ '}
+                                {proxyTestResult.message}
                               </Text>
                             )}
                           </View>

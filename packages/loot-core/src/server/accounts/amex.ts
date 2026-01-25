@@ -120,6 +120,14 @@ async function testCaptcha({ apiKey }: { apiKey: string }) {
   return await post('/test-captcha', { apiKey });
 }
 
+async function configureProxy({ proxy }: { proxy: string | null }) {
+  return await post('/configure-proxy', { proxy });
+}
+
+async function testProxy({ proxy }: { proxy: string }) {
+  return await post('/test-proxy', { proxy });
+}
+
 export async function downloadAmexTransactions(
   accountToken: string,
   startDate: string,
@@ -156,6 +164,8 @@ export type AccountHandlers = {
   'amex-debug-imap': typeof debugImap;
   'amex-configure-captcha': typeof configureCaptcha;
   'amex-test-captcha': typeof testCaptcha;
+  'amex-configure-proxy': typeof configureProxy;
+  'amex-test-proxy': typeof testProxy;
 };
 
 export const app = createApp<AccountHandlers>();
@@ -168,3 +178,5 @@ app.method('amex-test-imap', testImap);
 app.method('amex-debug-imap', debugImap);
 app.method('amex-configure-captcha', configureCaptcha);
 app.method('amex-test-captcha', testCaptcha);
+app.method('amex-configure-proxy', configureProxy);
+app.method('amex-test-proxy', testProxy);

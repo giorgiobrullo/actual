@@ -29,6 +29,7 @@ export const SecretName = {
   cartayou_password: 'cartayou_password',
   cartayou_sms_secret: 'cartayou_sms_secret',
   captcha_2captcha_apikey: 'captcha_2captcha_apikey',
+  amex_proxy: 'amex_proxy',
 };
 
 class SecretsDb {

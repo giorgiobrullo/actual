@@ -14,6 +14,8 @@ export type AmexEndpoints = {
     ConfigureCaptchaResponse
   >;
   '/test-captcha': Endpoint<TestCaptchaBody, TestCaptchaResponse>;
+  '/configure-proxy': Endpoint<ConfigureProxyBody, ConfigureProxyResponse>;
+  '/test-proxy': Endpoint<TestProxyBody, TestProxyResponse>;
 };
 
 export type Endpoint<BodyType, ResponseType> = {
@@ -102,6 +104,7 @@ export type AmexStatusResponse = {
   configured: boolean;
   lastLogin?: string;
   captchaSolverConfigured?: boolean;
+  proxyConfigured?: boolean;
 };
 
 export type ConfigureCaptchaBody = {
@@ -119,6 +122,24 @@ export type TestCaptchaBody = {
 export type TestCaptchaResponse = {
   success: boolean;
   balance?: number;
+};
+
+export type ConfigureProxyBody = {
+  proxy: string | null; // e.g., "socks5://localhost:1055" or null to clear
+};
+
+export type ConfigureProxyResponse = {
+  success: boolean;
+};
+
+export type TestProxyBody = {
+  proxy: string; // e.g., "socks5://localhost:1055"
+};
+
+export type TestProxyResponse = {
+  success: boolean;
+  ip?: string; // The exit IP address seen through the proxy
+  message?: string; // Error message if failed
 };
 
 export type AmexLoginResponse = {

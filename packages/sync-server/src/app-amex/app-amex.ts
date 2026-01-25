@@ -15,6 +15,7 @@ import {
   type ConfigureBody,
   type DebugImapBody,
   type TestImapBody,
+  type TestProxyBody,
   type TransactionsBody,
 } from './models/amex.js';
 import { getCachedAccounts, performLogin } from './services/amex-auth.js';
@@ -83,6 +84,7 @@ post('/status', async () => {
     configured: status.configured,
     lastLogin: status.hasSession ? new Date().toISOString() : undefined,
     captchaSolverConfigured: isCaptchaServiceConfigured(),
+    proxyConfigured: amexServices.isProxyConfigured(),
   };
 });
 
@@ -125,6 +127,32 @@ app.post('/test-captcha', async (req, res) => {
   }
 
   return res.json({ data: { success: true, balance: result.balance } });
+});
+
+/**
+ * POST /configure-proxy
+ * Configure proxy for browser automation (e.g., socks5://10.0.0.1:1080)
+ */
+app.post('/configure-proxy', (req, res) => {
+  const { proxy } = req.body as { proxy?: string | null };
+
+  amexServices.configureProxy(proxy || null);
+  return res.json({ data: { success: true } });
+});
+
+/**
+ * POST /test-proxy
+ * Test proxy connection by fetching external IP
+ */
+post('/test-proxy', async req => {
+  const body = req.body as TestProxyBody;
+
+  if (!body.proxy) {
+    throw badRequestVariableError('proxy', '/test-proxy');
+  }
+
+  const result = await amexServices.testProxy(body.proxy);
+  return result;
 });
 
 /**

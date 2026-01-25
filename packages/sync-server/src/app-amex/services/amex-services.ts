@@ -80,6 +80,79 @@ export function deconfigure(): void {
 }
 
 /**
+ * Configure proxy for browser automation
+ * @param proxy - Proxy URL (e.g., "socks5://10.0.0.1:1080") or null to clear
+ */
+export function configureProxy(proxy: string | null): void {
+  if (proxy) {
+    secretsService.set(SecretName.amex_proxy, proxy);
+    debug('Amex proxy configured: %s', proxy);
+  } else {
+    secretsService.set(SecretName.amex_proxy, '');
+    debug('Amex proxy cleared');
+  }
+}
+
+/**
+ * Check if proxy is configured
+ */
+export function isProxyConfigured(): boolean {
+  const proxy = secretsService.get(SecretName.amex_proxy);
+  return Boolean(proxy);
+}
+
+/**
+ * Get configured proxy URL
+ */
+export function getProxy(): string | null {
+  return secretsService.get(SecretName.amex_proxy) || null;
+}
+
+/**
+ * Test proxy connection by fetching external IP through it
+ * Uses the browser (same as login flow) to ensure accurate test
+ */
+export async function testProxy(
+  proxyUrl: string,
+): Promise<{ success: boolean; ip?: string; message?: string }> {
+  debug('Testing proxy: %s', proxyUrl);
+
+  const { chromium } = await import('patchright');
+  let browser = null;
+
+  try {
+    browser = await chromium.launch({
+      headless: true,
+      proxy: { server: proxyUrl },
+    });
+
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    // Fetch IP from httpbin (reliable, returns JSON)
+    await page.goto('https://httpbin.org/ip', { timeout: 30000 });
+
+    // Extract the IP from the JSON response
+    const content = await page.textContent('body');
+    const json = JSON.parse(content || '{}');
+    const ip = json.origin;
+
+    debug('Proxy test successful, exit IP: %s', ip);
+    return { success: true, ip };
+  } catch (error) {
+    debug('Proxy test failed: %o', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
+/**
  * Make an authenticated API request to Amex
  */
 async function makeApiRequest<T>(

@@ -41,6 +41,16 @@ export type TestCaptchaResponse = {
   balance?: number;
 };
 
+export type TestProxyBody = {
+  proxy: string;
+};
+
+export type TestProxyResponse = {
+  success: boolean;
+  ip?: string;
+  message?: string;
+};
+
 export type AmexEndpoints = {
   '/configure': Endpoint<ConfigureBody, void>;
   '/status': Endpoint<undefined, AmexStatusResponse>;
@@ -50,6 +60,7 @@ export type AmexEndpoints = {
   '/test-imap': Endpoint<TestImapBody, TestImapResponse>;
   '/debug-imap': Endpoint<DebugImapBody, DebugImapResponse>;
   '/test-captcha': Endpoint<TestCaptchaBody, TestCaptchaResponse>;
+  '/test-proxy': Endpoint<TestProxyBody, TestProxyResponse>;
 };
 
 export type Endpoint<BodyType, ResponseType> = {
@@ -106,6 +117,7 @@ export type AmexStatusResponse = {
   configured: boolean;
   lastLogin?: string;
   captchaSolverConfigured?: boolean;
+  proxyConfigured?: boolean;
 };
 
 export type AmexLoginResponse = {

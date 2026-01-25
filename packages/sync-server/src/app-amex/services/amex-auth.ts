@@ -11,6 +11,7 @@ import { SecretName, secretsService } from '../../services/secrets-service.js';
 import { type AmexAccount } from '../models/amex.js';
 import { AuthFailedError } from '../utils/errors.js';
 
+import { getProxy } from './amex-services.js';
 import {
   isImapConfigured,
   waitForAmexVerificationCode,
@@ -96,9 +97,18 @@ export async function performLogin(): Promise<AmexSession> {
 
   try {
     // Launch browser using patchright (undetected)
-    browser = await chromium.launch({
+    // Optionally use a proxy (e.g., socks5://10.0.0.1:1080 for WireGuard/Tailscale)
+    const proxyUrl = getProxy();
+    const launchOptions: Parameters<typeof chromium.launch>[0] = {
       headless: true,
-    });
+    };
+
+    if (proxyUrl) {
+      debug('Using proxy: %s', proxyUrl);
+      launchOptions.proxy = { server: proxyUrl };
+    }
+
+    browser = await chromium.launch(launchOptions);
 
     const context = await browser.newContext({
       viewport: { width: 1280, height: 720 },
@@ -673,7 +683,7 @@ export async function performLogin(): Promise<AmexSession> {
         debug('Login button still present, disabled: %s', loginButtonDisabled);
 
         throw new AuthFailedError(
-          'Login failed - page did not redirect. Check credentials or try again later (possible rate limiting).',
+          'Login failed - page did not redirect. This often happens when Amex detects a datacenter/VPS IP address. Try configuring a proxy to route traffic through a residential IP (e.g., your home network via WireGuard/SOCKS5). Could also be incorrect credentials or rate limiting.',
         );
       }
 

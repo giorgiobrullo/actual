@@ -3,9 +3,6 @@ import { registerSW } from 'virtual:pwa-register';
 
 import * as Platform from 'loot-core/shared/platform';
 
-// oxlint-disable-next-line typescript-paths/absolute-parent-import
-import packageJson from '../package.json';
-
 const backendWorkerUrl = new URL('./browser-server.js', import.meta.url);
 
 // This file installs global variables that the app expects.
@@ -18,7 +15,7 @@ const ACTUAL_VERSION = Platform.isPlaywright
   ? '99.9.9'
   : process.env.REACT_APP_REVIEW_ID
     ? '.preview'
-    : packageJson.version;
+    : process.env.REACT_APP_COMMIT_HASH || 'unknown';
 
 // *** Start the backend ***
 let worker = null;

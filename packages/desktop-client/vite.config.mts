@@ -1,3 +1,4 @@
+import { execSync } from 'child_process';
 import * as path from 'path';
 
 import inject from '@rollup/plugin-inject';
@@ -9,6 +10,15 @@ import { visualizer } from 'rollup-plugin-visualizer';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import viteTsconfigPaths from 'vite-tsconfig-paths';
+
+// Get the short commit hash for version display
+function getCommitHash(): string {
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    return 'unknown';
+  }
+}
 
 const addWatchers = (): Plugin => ({
   name: 'add-watchers',
@@ -79,6 +89,9 @@ export default defineConfig(async ({ mode }) => {
     process.env.REACT_APP_REVIEW_ID = process.env.REVIEW_ID;
     process.env.REACT_APP_BRANCH = process.env.BRANCH;
   }
+
+  // Inject commit hash for version display
+  process.env.REACT_APP_COMMIT_HASH = getCommitHash();
 
   let resolveExtensions = [
     '.web.js',

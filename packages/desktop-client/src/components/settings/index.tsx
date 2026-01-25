@@ -59,7 +59,8 @@ function About() {
       <Text>
         <Trans>
           <strong>Actual</strong> is a super fast privacy-focused app for
-          managing your finances.
+          managing your finances. This is an Italian fork with additional
+          features for Italian banks maintan by giorgiobrullo.
         </Trans>
       </Text>
       <View
@@ -79,9 +80,7 @@ function About() {
         data-vrt-mask
       >
         <Text>
-          <Trans>
-            Client version: {{ version: `v${window.Actual?.ACTUAL_VERSION}` }}
-          </Trans>
+          <Trans>Build: {{ version: window.Actual?.ACTUAL_VERSION }}</Trans>
         </Text>
         <Text>
           <Trans>Server version: {{ version }}</Trans>

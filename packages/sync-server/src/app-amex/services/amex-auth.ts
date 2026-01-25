@@ -829,6 +829,26 @@ export async function performLogin(): Promise<AmexSession> {
           await page.waitForTimeout(2000);
           currentUrl = page.url();
           debug('Current URL after trust device: %s', currentUrl);
+
+          // Amex sometimes redirects to login page even when authenticated
+          // Check if we're actually logged in (logout link present) and navigate to dashboard
+          if (currentUrl.includes('login')) {
+            const logoutLink = await page.$(
+              'a[href*="logout"], a:has-text("Esci")',
+            );
+            if (logoutLink) {
+              debug(
+                'On login page but logout link found - already authenticated, navigating to dashboard',
+              );
+              await page.goto(AMEX_DASHBOARD_URL, {
+                waitUntil: 'networkidle',
+                timeout: LOGIN_TIMEOUT_MS,
+              });
+              await page.waitForTimeout(2000);
+              currentUrl = page.url();
+              debug('Navigated to dashboard: %s', currentUrl);
+            }
+          }
         }
       }
     }

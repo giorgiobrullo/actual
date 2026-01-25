@@ -580,14 +580,20 @@ export function CartaYouSetupAccountModal({
                                   whiteSpace: 'pre-wrap',
                                 }}
                               >
-                                {`Get Contents of URL
-  URL: ${webhookUrl}
-  Method: POST
-  Request Body: JSON
-  {
-    "body": [Shortcut Input],
-    "secret": "${smsSecret || '<your-secret>'}"
-  }`}
+                                {`Repeat 3 times
+  Get Contents of URL
+    URL: ${webhookUrl}
+    Method: POST
+    Request Body: JSON
+    {
+      "body": [Shortcut Input],
+      "secret": "${smsSecret || '<your-secret>'}"
+    }
+  If [Contents of URL] has any value
+    Stop this Shortcut
+  End If
+  Wait 2 seconds
+End Repeat`}
                               </Text>
                             </View>
 

@@ -359,9 +359,60 @@ export async function performLogin(): Promise<AmexSession> {
           }
         : null;
 
-      return { errors, overlays: overlayInfo, buttonState: btnState };
+      // Check for form validation errors (inline errors on fields)
+      const formErrors: string[] = [];
+      const userIdField = document.querySelector('#eliloUserID');
+      const passwordField = document.querySelector('#eliloPassword');
+      if (userIdField) {
+        const userIdError = userIdField.getAttribute('aria-describedby');
+        if (userIdError) {
+          const errorEl = document.getElementById(userIdError);
+          if (errorEl?.textContent)
+            {formErrors.push(`UserID: ${errorEl.textContent}`);}
+        }
+      }
+      if (passwordField) {
+        const pwdError = passwordField.getAttribute('aria-describedby');
+        if (pwdError) {
+          const errorEl = document.getElementById(pwdError);
+          if (errorEl?.textContent)
+            {formErrors.push(`Password: ${errorEl.textContent}`);}
+        }
+      }
+
+      // Check for any visible text that might indicate an error
+      const loginContainer = document.querySelector(
+        '[data-module-name="axp-login"]',
+      );
+      const containerText =
+        loginContainer?.textContent?.substring(0, 500) || '';
+
+      // Check for iframes (possible hidden CAPTCHA)
+      const iframes = document.querySelectorAll('iframe');
+      const iframeInfo = Array.from(iframes).map(iframe => ({
+        src: iframe.src,
+        visible: (iframe as HTMLElement).offsetParent !== null,
+      }));
+
+      return {
+        errors,
+        overlays: overlayInfo,
+        buttonState: btnState,
+        formErrors,
+        iframes: iframeInfo,
+        containerText,
+      };
     });
     debug('Page state after login click: %o', pageStateAfterClick);
+
+    // Save screenshot for debugging (only in debug mode)
+    try {
+      const screenshotPath = '/tmp/amex-login-debug.png';
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      debug('Screenshot saved to: %s', screenshotPath);
+    } catch (e) {
+      debug('Could not save screenshot: %s', e);
+    }
 
     // Check for CAPTCHA and try to solve it
     const captcha = await detectRecaptcha(page);

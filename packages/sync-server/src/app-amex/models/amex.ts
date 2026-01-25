@@ -32,6 +32,15 @@ export type DebugImapResponse = {
   }>;
 };
 
+export type TestCaptchaBody = {
+  apiKey: string;
+};
+
+export type TestCaptchaResponse = {
+  success: boolean;
+  balance?: number;
+};
+
 export type AmexEndpoints = {
   '/configure': Endpoint<ConfigureBody, void>;
   '/status': Endpoint<undefined, AmexStatusResponse>;
@@ -40,6 +49,7 @@ export type AmexEndpoints = {
   '/transactions': Endpoint<TransactionsBody, TransactionsResponse>;
   '/test-imap': Endpoint<TestImapBody, TestImapResponse>;
   '/debug-imap': Endpoint<DebugImapBody, DebugImapResponse>;
+  '/test-captcha': Endpoint<TestCaptchaBody, TestCaptchaResponse>;
 };
 
 export type Endpoint<BodyType, ResponseType> = {

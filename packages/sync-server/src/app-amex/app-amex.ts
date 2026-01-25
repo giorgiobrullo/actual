@@ -3,6 +3,7 @@ import express, { type Express, type Request, type Router } from 'express';
 import {
   configureCaptchaService,
   isCaptchaServiceConfigured,
+  testCaptchaApiKey,
 } from '../services/captcha-service.js';
 import {
   requestLoggerMiddleware,
@@ -100,6 +101,30 @@ app.post('/configure-captcha', (req, res) => {
 
   configureCaptchaService(apiKey);
   return res.json({ data: { success: true } });
+});
+
+/**
+ * POST /test-captcha
+ * Test 2Captcha API key by checking balance
+ */
+app.post('/test-captcha', async (req, res) => {
+  const { apiKey } = req.body as { apiKey?: string };
+
+  if (!apiKey) {
+    return res.status(400).json({
+      error: { error_code: 'BAD_REQUEST', error_type: 'Missing apiKey' },
+    });
+  }
+
+  const result = await testCaptchaApiKey(apiKey);
+
+  if (!result.success) {
+    return res.status(400).json({
+      error: { error_code: 'BAD_REQUEST', error_type: result.error },
+    });
+  }
+
+  return res.json({ data: { success: true, balance: result.balance } });
 });
 
 /**

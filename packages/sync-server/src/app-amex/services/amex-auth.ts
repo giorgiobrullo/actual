@@ -244,6 +244,39 @@ export async function performLogin(): Promise<AmexSession> {
     // Wait for login form
     await page.waitForSelector('#eliloUserID', { timeout: 30000 });
 
+    // Wait a bit for any CAPTCHA/challenge to load
+    debug('Waiting for page to fully load...');
+    await page.waitForTimeout(5000);
+
+    // Check for CAPTCHA before entering credentials
+    debug('Checking for CAPTCHA before login...');
+    const preLoginCaptcha = await detectRecaptcha(page);
+    if (preLoginCaptcha) {
+      debug('CAPTCHA detected before login (type: %s)', preLoginCaptcha.type);
+
+      if (!isCaptchaServiceConfigured()) {
+        throw new AuthFailedError(
+          'CAPTCHA verification required before login. Configure 2Captcha API key in settings.',
+        );
+      }
+
+      debug('Solving pre-login CAPTCHA...');
+      const token = await solveRecaptcha(
+        page.url(),
+        preLoginCaptcha.sitekey,
+        preLoginCaptcha.type,
+      );
+
+      if (!token) {
+        throw new AuthFailedError(
+          'Failed to solve CAPTCHA. Please try again later.',
+        );
+      }
+
+      await injectCaptchaToken(page, token);
+      debug('Pre-login CAPTCHA solved');
+    }
+
     // Fill in credentials
     debug('Entering credentials...');
     await page.fill('#eliloUserID', username);
@@ -253,8 +286,45 @@ export async function performLogin(): Promise<AmexSession> {
     debug('Clicking login button...');
     await page.click('#loginSubmit');
 
-    // Small wait for any immediate page response
-    await page.waitForTimeout(2000);
+    // Wait for any CAPTCHA or response to appear
+    debug('Waiting for login response...');
+    await page.waitForTimeout(5000);
+
+    // Debug: Check what's on the page after clicking login
+    const pageStateAfterClick = await page.evaluate(() => {
+      // Check for any error messages
+      const errorElements = document.querySelectorAll(
+        '[class*="error"], [class*="alert"], [role="alert"], [data-testid*="error"]',
+      );
+      const errors = Array.from(errorElements)
+        .map(el => el.textContent?.trim())
+        .filter(Boolean);
+
+      // Check for any overlays or modals
+      const overlays = document.querySelectorAll(
+        '[class*="overlay"], [class*="modal"], [class*="captcha"], [class*="challenge"]',
+      );
+      const overlayInfo = Array.from(overlays).map(el => ({
+        class: el.className,
+        visible:
+          (el as HTMLElement).offsetParent !== null ||
+          getComputedStyle(el).display !== 'none',
+      }));
+
+      // Check if login button is still enabled
+      const loginBtn = document.querySelector(
+        '#loginSubmit',
+      ) as HTMLButtonElement;
+      const btnState = loginBtn
+        ? {
+            disabled: loginBtn.disabled,
+            text: loginBtn.textContent,
+          }
+        : null;
+
+      return { errors, overlays: overlayInfo, buttonState: btnState };
+    });
+    debug('Page state after login click: %o', pageStateAfterClick);
 
     // Check for CAPTCHA and try to solve it
     const captcha = await detectRecaptcha(page);

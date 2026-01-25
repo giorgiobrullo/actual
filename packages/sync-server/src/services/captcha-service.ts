@@ -45,21 +45,72 @@ export function configureCaptchaService(apiKey: string): void {
 }
 
 /**
- * Detect if there's a reCAPTCHA on the page
+ * Test 2Captcha API key by checking balance
+ */
+export async function testCaptchaApiKey(
+  apiKey: string,
+): Promise<{ success: boolean; balance?: number; error?: string }> {
+  debug('Testing 2Captcha API key...');
+
+  try {
+    const response = await fetch(`${TWOCAPTCHA_API}/getBalance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientKey: apiKey }),
+    });
+
+    const result = (await response.json()) as {
+      errorId: number;
+      errorCode?: string;
+      errorDescription?: string;
+      balance?: number;
+    };
+
+    if (result.errorId !== 0) {
+      debug('2Captcha API key test failed: %s', result.errorDescription);
+      return {
+        success: false,
+        error: result.errorDescription || result.errorCode || 'Invalid API key',
+      };
+    }
+
+    debug('2Captcha API key valid, balance: %s', result.balance);
+    return { success: true, balance: result.balance };
+  } catch (error) {
+    debug('2Captcha API key test error: %o', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+/**
+ * Detect if there's a reCAPTCHA or other CAPTCHA on the page
  * Returns the sitekey if found, null otherwise
  */
 export async function detectRecaptcha(
   page: Page,
 ): Promise<{ sitekey: string; type: 'v2' | 'v3' | 'invisible' } | null> {
-  debug('Checking for reCAPTCHA...');
+  debug('Checking for CAPTCHA on page: %s', page.url());
+
+  // First, let's see what iframes exist on the page for debugging
+  const iframeInfo = await page.evaluate(() => {
+    const iframes = Array.from(document.querySelectorAll('iframe'));
+    return iframes.map(f => ({
+      src: f.src?.substring(0, 100),
+      title: f.title,
+      id: f.id,
+    }));
+  });
+  if (iframeInfo.length > 0) {
+    debug('Found %d iframes: %o', iframeInfo.length, iframeInfo);
+  }
 
   // Check for reCAPTCHA v2/invisible iframe
   const recaptchaFrame = await page.$(
-    'iframe[src*="recaptcha"], iframe[title*="reCAPTCHA"]',
+    'iframe[src*="recaptcha"], iframe[title*="reCAPTCHA"], iframe[src*="hcaptcha"], iframe[src*="arkoselabs"], iframe[src*="funcaptcha"]',
   );
 
   if (recaptchaFrame) {
-    debug('Found reCAPTCHA iframe');
+    debug('Found CAPTCHA iframe');
 
     // Try to extract sitekey from various places
     const sitekey = await page.evaluate(() => {

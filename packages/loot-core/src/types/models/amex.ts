@@ -13,6 +13,7 @@ export type AmexEndpoints = {
     ConfigureCaptchaBody,
     ConfigureCaptchaResponse
   >;
+  '/test-captcha': Endpoint<TestCaptchaBody, TestCaptchaResponse>;
 };
 
 export type Endpoint<BodyType, ResponseType> = {
@@ -109,6 +110,15 @@ export type ConfigureCaptchaBody = {
 
 export type ConfigureCaptchaResponse = {
   success: boolean;
+};
+
+export type TestCaptchaBody = {
+  apiKey: string;
+};
+
+export type TestCaptchaResponse = {
+  success: boolean;
+  balance?: number;
 };
 
 export type AmexLoginResponse = {

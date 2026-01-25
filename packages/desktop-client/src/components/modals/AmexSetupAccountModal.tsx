@@ -130,46 +130,6 @@ export function AmexSetupAccountModal({
     checkStatus();
   }, []);
 
-  const handleConfigureCaptcha = async () => {
-    if (!captchaApiKey) {
-      setCaptchaTestResult({
-        success: false,
-        message: t('Please enter a 2Captcha API key'),
-      });
-      return;
-    }
-
-    setIsTestingCaptcha(true);
-    setCaptchaTestResult(null);
-
-    try {
-      const result = await send('amex-configure-captcha', {
-        apiKey: captchaApiKey,
-      });
-
-      if (result?.error) {
-        setCaptchaTestResult({
-          success: false,
-          message: result.error.error_type || t('Configuration failed'),
-        });
-      } else {
-        setCaptchaTestResult({
-          success: true,
-          message: t('2Captcha API key saved successfully'),
-        });
-        setIsCaptchaConfigured(true);
-        setCaptchaApiKey(''); // Clear the input after success
-      }
-    } catch (err) {
-      setCaptchaTestResult({
-        success: false,
-        message: String(err),
-      });
-    } finally {
-      setIsTestingCaptcha(false);
-    }
-  };
-
   const handleTestImap = async () => {
     if (!imapHost || !imapUser || !imapPassword) {
       setImapTestResult({
@@ -251,12 +211,59 @@ export function AmexSetupAccountModal({
     }
   };
 
+  const handleTestCaptcha = async () => {
+    if (!captchaApiKey) {
+      setCaptchaTestResult({
+        success: false,
+        message: t('Please enter a 2Captcha API key'),
+      });
+      return;
+    }
+
+    setIsTestingCaptcha(true);
+    setCaptchaTestResult(null);
+
+    try {
+      const result = await send('amex-test-captcha', {
+        apiKey: captchaApiKey,
+      });
+
+      if (result?.error) {
+        setCaptchaTestResult({
+          success: false,
+          message: result.error.error_type || t('Test failed'),
+        });
+      } else if (result?.data) {
+        setCaptchaTestResult({
+          success: true,
+          message: t('API key valid. Balance: {{balance}}', {
+            balance: `$${result.data.balance}`,
+          }),
+        });
+      }
+    } catch (err) {
+      setCaptchaTestResult({
+        success: false,
+        message: String(err),
+      });
+    } finally {
+      setIsTestingCaptcha(false);
+    }
+  };
+
   // Login with saved credentials (no need to re-enter)
   const handleLoginWithSaved = async () => {
     setError(null);
     setIsLoggingIn(true);
 
     try {
+      // Save captcha API key if provided
+      if (captchaApiKey) {
+        await send('amex-configure-captcha', { apiKey: captchaApiKey });
+        setIsCaptchaConfigured(true);
+        setCaptchaApiKey('');
+      }
+
       const loginResult = await send('amex-login');
       if (loginResult?.error) {
         setError(loginResult.error);
@@ -312,6 +319,13 @@ export function AmexSetupAccountModal({
         setError(configResult.error);
         setIsLoggingIn(false);
         return;
+      }
+
+      // Save captcha API key if provided
+      if (captchaApiKey) {
+        await send('amex-configure-captcha', { apiKey: captchaApiKey });
+        setIsCaptchaConfigured(true);
+        setCaptchaApiKey('');
       }
 
       // Then attempt login
@@ -711,11 +725,11 @@ export function AmexSetupAccountModal({
                             <ButtonWithLoading
                               variant="bare"
                               style={{ padding: '5px 10px', fontSize: 13 }}
-                              onPress={handleConfigureCaptcha}
+                              onPress={handleTestCaptcha}
                               isLoading={isTestingCaptcha}
                               isDisabled={isLoggingIn || !captchaApiKey}
                             >
-                              <Trans>Save API Key</Trans>
+                              <Trans>Test API Key</Trans>
                             </ButtonWithLoading>
 
                             {captchaTestResult && (

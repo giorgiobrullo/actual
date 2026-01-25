@@ -127,6 +127,23 @@ export async function performLogin(): Promise<AmexSession> {
 
     const page = await context.newPage();
 
+    // Check external IP to verify proxy is working
+    try {
+      debug('Checking external IP address...');
+      const ipCheckPage = await context.newPage();
+      await ipCheckPage.goto('https://api.ipify.org?format=json', {
+        timeout: 15000,
+      });
+      const ipResponse = await ipCheckPage.textContent('body');
+      if (ipResponse) {
+        const { ip } = JSON.parse(ipResponse);
+        debug('External IP: %s (via %s)', ip, proxyUrl ? 'proxy' : 'direct');
+      }
+      await ipCheckPage.close();
+    } catch (e) {
+      debug('Could not check external IP: %s', e);
+    }
+
     // Set up response interception to capture account tokens
     const discoveredAccounts: AmexAccount[] = [];
 

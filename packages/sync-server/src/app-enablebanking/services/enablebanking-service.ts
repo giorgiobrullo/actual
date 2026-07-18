@@ -481,7 +481,10 @@ export const enableBankingService = {
     dateTo: string,
     continuationKey?: string,
     psuHeaders?: PsuHeaders,
-    { bookedOnly = false }: { bookedOnly?: boolean } = {},
+    {
+      bookedOnly = false,
+      strategy,
+    }: { bookedOnly?: boolean; strategy?: 'longest' } = {},
   ): Promise<{
     transactions: EnableBankingTransaction[];
     continuation_key?: string;
@@ -495,6 +498,9 @@ export const enableBankingService = {
     if (continuationKey) {
       path += `&continuation_key=${encodeURIComponent(continuationKey)}`;
     }
+    if (strategy) {
+      path += `&strategy=${encodeURIComponent(strategy)}`;
+    }
     return request<{
       transactions: EnableBankingTransaction[];
       continuation_key?: string;
@@ -506,7 +512,7 @@ export const enableBankingService = {
     dateFrom: string,
     dateTo: string,
     psuHeaders?: PsuHeaders,
-    options: { bookedOnly?: boolean } = {},
+    options: { bookedOnly?: boolean; strategy?: 'longest' } = {},
   ): Promise<EnableBankingTransaction[]> {
     const allTransactions: EnableBankingTransaction[] = [];
     let continuationKey: string | undefined;

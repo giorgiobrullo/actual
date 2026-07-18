@@ -17,6 +17,7 @@ import { validateGlobalBankSyncSession } from '#util/validate-budget-session';
 
 import type {
   EnableBankingSession,
+  EnableBankingTransaction,
   PsuHeaders,
 } from './services/enablebanking-service';
 import {
@@ -561,7 +562,8 @@ app.post(
 bankSync.post(
   '/transactions',
   handleError(async (req: Request, res: Response) => {
-    const { accountId, startDate, aspspName, importPending } = req.body || {};
+    const { accountId, startDate, aspspName, importPending, isInitialSync } =
+      req.body || {};
 
     if (!accountId || !startDate) {
       res.send({
@@ -614,21 +616,84 @@ bankSync.post(
         startingBalance = preferredBalance.balanceAmount.amount;
       }
 
-      // Fetch all paginated transactions
-      const rawTransactions = await enableBankingService.getAllTransactions(
-        accountId,
-        dateFrom,
-        dateTo,
-        psuHeaders,
-        // Clients that predate the setting send nothing and get everything.
-        { bookedOnly: importPending === false },
-      );
+      // Clients that predate the setting send nothing and get everything.
+      const fetchOptions = { bookedOnly: importPending === false };
+
+      // Fetch all paginated transactions. On the first sync of an account,
+      // also fetch with strategy=longest so the bank returns its full
+      // available history — that strategy omits pending transactions, so the
+      // default fetch still provides those. The two result sets overlap and
+      // may carry different transaction IDs for the same movement, hence the
+      // content-based de-duplication below. Each response is normalized on its
+      // own, so the ids derived for postings the bank sent without one match
+      // the ones a later single-fetch sync derives.
+      let normalizedTransactions: ReturnType<typeof normalizeTransactions>;
+      if (isInitialSync) {
+        // Widen the window for the historical fetch; the shared client start
+        // date only covers recent transactions.
+        const longestFrom = new Date(dateTo);
+        longestFrom.setFullYear(longestFrom.getFullYear() - 1);
+        const longestDateFrom = [
+          dateFrom,
+          longestFrom.toISOString().split('T')[0],
+        ].sort()[0];
+
+        const [historical, current] = await Promise.all([
+          enableBankingService
+            .getAllTransactions(
+              accountId,
+              longestDateFrom,
+              dateTo,
+              psuHeaders,
+              { strategy: 'longest' },
+            )
+            .catch((error: unknown) => {
+              // Not all banks support strategy=longest or wide date ranges;
+              // fall back to the default fetch alone instead of failing the
+              // whole initial sync.
+              debug('strategy=longest initial fetch failed: %s', error);
+              return [] as EnableBankingTransaction[];
+            }),
+          enableBankingService.getAllTransactions(
+            accountId,
+            dateFrom,
+            dateTo,
+            psuHeaders,
+            fetchOptions,
+          ),
+        ]);
+        normalizedTransactions = [
+          ...normalizeTransactions(historical),
+          ...normalizeTransactions(current),
+        ];
+      } else {
+        normalizedTransactions = normalizeTransactions(
+          await enableBankingService.getAllTransactions(
+            accountId,
+            dateFrom,
+            dateTo,
+            psuHeaders,
+            fetchOptions,
+          ),
+        );
+      }
 
       const all: ReturnType<typeof normalizeTransactions> = [];
       const booked: ReturnType<typeof normalizeTransactions> = [];
       const pending: ReturnType<typeof normalizeTransactions> = [];
+      const seen = new Set<string>();
 
-      for (const normalized of normalizeTransactions(rawTransactions)) {
+      for (const normalized of normalizedTransactions) {
+        // De-duplicate the overlap between the strategy=longest and default
+        // fetches by content, since their transaction IDs may differ.
+        if (isInitialSync) {
+          const key = `${normalized.date}|${normalized.transactionAmount.amount}|${normalized.payeeName}`;
+          if (seen.has(key)) {
+            continue;
+          }
+          seen.add(key);
+        }
+
         // Drop records Actual's client can't insert (empty/non-ISO date or
         // non-numeric amount) — one of them would otherwise abort the entire
         // account sync. Pending transactions that carry a date are unaffected.

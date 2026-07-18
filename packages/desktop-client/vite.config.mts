@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { createReadStream } from 'node:fs';
 import { cp, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
@@ -22,6 +22,14 @@ import type { Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function getCommitHash(): string {
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    return '';
+  }
+}
 // Compile every workspace package that ships React components. Workspace
 // imports resolve to their real paths under packages/<name>/src, so any
 // current or future package flowing through this build is picked up
@@ -249,6 +257,12 @@ export default defineConfig(async ({ mode, command }) => {
     process.env.REACT_APP_REVIEW_ID = process.env.REVIEW_ID;
     process.env.REACT_APP_BRANCH = process.env.BRANCH;
   }
+
+  // Expose the build's commit hash so deployed builds are identifiable.
+  // ACTUAL_COMMIT_HASH lets container builds pass the real hash in, since
+  // their build context may not contain the actual git repo.
+  process.env.REACT_APP_COMMIT_HASH =
+    process.env.ACTUAL_COMMIT_HASH || getCommitHash();
 
   // Electron packaging (--mode=desktop) bundles loot-core directly, so skip
   // all browser-only staging there.

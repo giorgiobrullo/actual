@@ -187,6 +187,7 @@ __metadata:
     "@types/convict": "npm:^6"
     "@types/cors": "npm:^2.8.19"
     "@types/express": "npm:^5.0.6"
+    "@types/imap": "npm:^0"
     "@types/jws": "npm:^3.2.11"
     "@types/node": "npm:^22.20.1"
     "@types/supertest": "npm:^7.2.1"
@@ -204,11 +205,13 @@ __metadata:
     express-rate-limit: "npm:^8.6.0"
     express-winston: "npm:^4.2.0"
     http-proxy-middleware: "npm:^4.2.0"
+    imap: "npm:^0.8.19"
     ipaddr.js: "npm:^2.4.0"
     jws: "npm:^4.0.1"
     migrate: "npm:^2.1.0"
     nodemon: "npm:^3.1.14"
     openid-client: "npm:^5.7.1"
+    patchright: "npm:^1.57.0"
     pluggy-sdk: "npm:^0.89.0"
     supertest: "npm:^7.2.2"
     typescript-strict-plugin: "npm:^2.4.4"
@@ -8812,6 +8815,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/imap@npm:^0":
+  version: 0.8.43
+  resolution: "@types/imap@npm:0.8.43"
+  dependencies:
+    "@types/node": "npm:*"
+  checksum: 10/c4aeacfd9b7f9fe4239bc0e09087260109e3373a3e2b331bd3d525569a38e46f472eff40c03e4417a50c3a7ad5b40309bba38b0ba1de75faf22e531f05d5ebbc
+  languageName: node
+  linkType: hard
+
 "@types/istanbul-lib-coverage@npm:*, @types/istanbul-lib-coverage@npm:^2.0.0":
   version: 2.0.6
   resolution: "@types/istanbul-lib-coverage@npm:2.0.6"
@@ -17076,6 +17088,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"imap@npm:^0.8.19":
+  version: 0.8.19
+  resolution: "imap@npm:0.8.19"
+  dependencies:
+    readable-stream: "npm:1.1.x"
+    utf7: "npm:>=1.0.2"
+  checksum: 10/d1531c7d3e1c896e048e2f4b22871b66cf93f029cae37c9d61558e4ba8ee34b9c657040eb4cad053f752e6ad3584ceab1bbc94999d4d9aa9e79e3c0bc211547a
+  languageName: node
+  linkType: hard
+
 "immediate@npm:^3.2.3":
   version: 3.3.0
   resolution: "immediate@npm:3.3.0"
@@ -21554,6 +21576,30 @@ __metadata:
   languageName: node
   linkType: hard
 
+"patchright-core@npm:1.62.3":
+  version: 1.62.3
+  resolution: "patchright-core@npm:1.62.3"
+  bin:
+    patchright-core: cli.js
+  checksum: 10/0200a4e2542e332e70afc82db3f816ecc4c279fea91bd16500cd147c336d3655218a20309cb1505ff549c0e821de9e4b2efefee85c486a3c6d1d106f38c24c2d
+  languageName: node
+  linkType: hard
+
+"patchright@npm:^1.57.0":
+  version: 1.62.3
+  resolution: "patchright@npm:1.62.3"
+  dependencies:
+    fsevents: "npm:2.3.2"
+    patchright-core: "npm:1.62.3"
+  dependenciesMeta:
+    fsevents:
+      optional: true
+  bin:
+    patchright: cli.js
+  checksum: 10/e2c2d94d5630d1bb517fdb7aa469d5ee7549cc498488f71b61e4da01074c8a59a1d027c92c817e3e3fc151752ec2476d81655a3d574f42c11591bab18e066656
+  languageName: node
+  linkType: hard
+
 "path-browserify@npm:^1.0.1":
   version: 1.0.1
   resolution: "path-browserify@npm:1.0.1"
@@ -23739,6 +23785,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"readable-stream@npm:1.1.x":
+  version: 1.1.14
+  resolution: "readable-stream@npm:1.1.14"
+  dependencies:
+    core-util-is: "npm:~1.0.0"
+    inherits: "npm:~2.0.1"
+    isarray: "npm:0.0.1"
+    string_decoder: "npm:~0.10.x"
+  checksum: 10/1aa2cf4bd02f9ab3e1d57842a43a413b52be5300aa089ad1f2e3cea00684532d73edc6a2ba52b0c3210d8b57eb20a695a6d2b96d1c6085ee979c6021ad48ad20
+  languageName: node
+  linkType: hard
+
 "readable-stream@npm:3, readable-stream@npm:^3.0.6, readable-stream@npm:^3.1.1, readable-stream@npm:^3.4.0, readable-stream@npm:^3.5.0, readable-stream@npm:^3.6.0, readable-stream@npm:^3.6.2":
   version: 3.6.2
   resolution: "readable-stream@npm:3.6.2"
@@ -24975,6 +25033,15 @@ __metadata:
   bin:
     semver: bin/semver.js
   checksum: 10/1ef3a85bd02a760c6ef76a45b8c1ce18226de40831e02a00bad78485390b98b6ccaa31046245fc63bba4a47a6a592b6c7eedc65cc47126e60489f9cc1ce3ed7e
+  languageName: node
+  linkType: hard
+
+"semver@npm:~5.3.0":
+  version: 5.3.0
+  resolution: "semver@npm:5.3.0"
+  bin:
+    semver: ./bin/semver
+  checksum: 10/ff3ac60aaa4855a723cc5784c43cf34674096b823037e0e7bb84aa7612acf9093c55c1b47c431f5ebb0ba74299e6d555e89ade74f2e69c348e58eecbd6d61b5e
   languageName: node
   linkType: hard
 
@@ -27377,6 +27444,15 @@ __metadata:
   peerDependencies:
     react: ^16.8.0  || ^17 || ^18 || ^19 || ^19.0.0-rc
   checksum: 10/4f5d6beab003d76f90c6a9b8b0cd5b61f24528fa3dbbf1a6d9c0a509cb80914074af911a92dab0bc07873f14f714771306f5271e1e8f09b94add1722da37debb
+  languageName: node
+  linkType: hard
+
+"utf7@npm:>=1.0.2":
+  version: 1.0.2
+  resolution: "utf7@npm:1.0.2"
+  dependencies:
+    semver: "npm:~5.3.0"
+  checksum: 10/510dacbecdbdbd9750e4372fe8477538aa90b9de93f5df24c7f0ab836f8404c8f08f5f2797c1e0d6788fa6c450445943d24c55b2f8cd3dc094748dab2ed75d8e
   languageName: node
   linkType: hard
 

@@ -31,6 +31,12 @@ COPY packages/ ./packages/
 # Increase memory limit for the build process to 8GB
 ENV NODE_OPTIONS=--max_old_space_size=8192
 
+# The real .git is excluded from the build context (a throwaway repo is seeded
+# below for lage), so the deployed build's commit hash must be passed in:
+#   docker build --build-arg COMMIT_HASH=$(git rev-parse --short HEAD) ...
+ARG COMMIT_HASH=
+ENV ACTUAL_COMMIT_HASH=$COMMIT_HASH
+
 # lage's task hasher invokes `git ls-tree HEAD` during initialization, so it
 # needs a git repo even when individual targets disable caching. .dockerignore
 # omits the real .git, so seed a throwaway repo with a single commit here.
@@ -70,6 +76,16 @@ ENV NODE_ENV=production
 COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/packages/sync-server/package.json ./
 COPY --from=builder /app/packages/sync-server/build ./build
+
+# Chromium + system libraries for the patchright-driven bank integrations
+# (app-amex, app-cartayou). Postinstall scripts are disabled workspace-wide
+# (.yarnrc.yml enableScripts: false), so the browser download must be explicit.
+# The container may run as an arbitrary uid, so install to a fixed
+# world-readable path instead of the invoking user's home.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN npx patchright install --with-deps chromium \
+    && chmod -R a+rX /ms-playwright \
+    && apt-get clean -y && rm -rf /var/lib/apt/lists/*
 
 ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
 EXPOSE 5006

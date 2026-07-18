@@ -17,6 +17,8 @@ import type {
   UserAccessEntity,
   UserEntity,
 } from '@actual-app/core/types/models';
+import type { AmexToken } from '@actual-app/core/types/models/amex';
+import type { CartaYouToken } from '@actual-app/core/types/models/cartayou';
 import type { CleanupTemplate } from '@actual-app/core/types/models/cleanup-templates';
 import type { Template } from '@actual-app/core/types/models/templates';
 import { createSlice } from '@reduxjs/toolkit';
@@ -148,6 +150,18 @@ export type Modal =
       name: 'enablebanking-init';
       options: {
         onSuccess: () => void;
+      };
+    }
+  | {
+      name: 'amex-setup-account';
+      options: {
+        onSuccess: (token: AmexToken) => void | Promise<void>;
+      };
+    }
+  | {
+      name: 'cartayou-setup-account';
+      options: {
+        onSuccess: (token: CartaYouToken) => void | Promise<void>;
       };
     }
   | {

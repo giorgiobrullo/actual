@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { createReadStream, readFileSync } from 'node:fs';
 import { cp, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
@@ -22,6 +22,14 @@ import type { Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function getCommitHash(): string {
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    return '';
+  }
+}
 // Compile every workspace package that ships React components. Workspace
 // imports resolve to their real paths under packages/<name>/src, so any
 // current or future package flowing through this build is picked up
@@ -276,8 +284,14 @@ export default defineConfig(async ({ mode, command }) => {
   // Docker/npm nightly builds). Forward whichever is present so edge/nightly
   // builds can show which commit they were built from. Release builds run in
   // GitHub Actions on a version tag and keep their plain version.
+  // Custom container builds pass ACTUAL_COMMIT_HASH in, since their build
+  // context has no real git repo; local builds fall back to `git rev-parse`.
   const isTagBuild = process.env.GITHUB_REF_TYPE === 'tag';
-  const commitRef = process.env.COMMIT_REF || process.env.GITHUB_SHA;
+  const commitRef =
+    process.env.ACTUAL_COMMIT_HASH ||
+    process.env.COMMIT_REF ||
+    process.env.GITHUB_SHA ||
+    getCommitHash();
   if (commitRef && !isTagBuild) {
     process.env.REACT_APP_COMMIT_REF = commitRef;
   }

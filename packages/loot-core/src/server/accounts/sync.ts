@@ -89,6 +89,20 @@ async function getAccountOldestTransaction(id): Promise<TransactionEntity> {
   ).data?.[0];
 }
 
+async function hasAccountBeenBankSynced(
+  id: AccountEntity['id'],
+): Promise<boolean> {
+  // Manual transactions don't have imported_id, so any row carrying one means
+  // an initial bank sync has already run for this account. Transactions
+  // imported by a previously linked provider count too — those accounts
+  // already have their history, so the deep initial fetch is skipped.
+  const result = await db.first(
+    `SELECT 1 FROM v_transactions WHERE account = ? AND imported_id IS NOT NULL LIMIT 1`,
+    [id],
+  );
+  return result !== null;
+}
+
 async function getAccountSyncStartDate(id) {
   // Many GoCardless integrations do not support getting more than 90 days
   // worth of data, so make that the earliest possible limit.
@@ -361,6 +375,7 @@ async function downloadEnableBankingTransactions(
   acctId: string,
   since: string,
   aspspName?: string,
+  isInitialSync = false,
 ) {
   const userToken = await asyncStorage.getItem('user-token');
   if (!userToken) return;
@@ -373,6 +388,7 @@ async function downloadEnableBankingTransactions(
       accountId: acctId,
       startDate: since,
       aspspName,
+      isInitialSync,
     },
     {
       'X-ACTUAL-TOKEN': userToken,
@@ -1274,11 +1290,16 @@ export async function syncAccount(
       newAccount,
     );
   } else if (acctRow.account_sync_source === 'enableBanking') {
+    // Use strategy=longest on the first bank sync of an account so Enable
+    // Banking returns its full available history instead of the shared
+    // (recent) start-date window.
+    const hasBankSyncedTransactions = await hasAccountBeenBankSynced(id);
     const bankRow = await db.select('banks', acctRow.bank);
     download = await downloadEnableBankingTransactions(
       acctId,
       syncStartDate,
       bankRow?.name,
+      !hasBankSyncedTransactions,
     );
   } else {
     throw new Error(

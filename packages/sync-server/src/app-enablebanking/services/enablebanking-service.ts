@@ -410,6 +410,7 @@ export const enableBankingService = {
     dateTo: string,
     continuationKey?: string,
     psuHeaders?: PsuHeaders,
+    strategy?: 'longest',
   ): Promise<{
     transactions: EnableBankingTransaction[];
     continuation_key?: string;
@@ -417,6 +418,9 @@ export const enableBankingService = {
     let path = `/accounts/${encodeURIComponent(accountUid)}/transactions?date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`;
     if (continuationKey) {
       path += `&continuation_key=${encodeURIComponent(continuationKey)}`;
+    }
+    if (strategy) {
+      path += `&strategy=${encodeURIComponent(strategy)}`;
     }
     return request<{
       transactions: EnableBankingTransaction[];
@@ -429,6 +433,7 @@ export const enableBankingService = {
     dateFrom: string,
     dateTo: string,
     psuHeaders?: PsuHeaders,
+    strategy?: 'longest',
   ): Promise<EnableBankingTransaction[]> {
     const allTransactions: EnableBankingTransaction[] = [];
     let continuationKey: string | undefined;
@@ -442,6 +447,7 @@ export const enableBankingService = {
         dateTo,
         continuationKey,
         psuHeaders,
+        strategy,
       );
 
       if (

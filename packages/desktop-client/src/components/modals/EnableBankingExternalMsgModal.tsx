@@ -118,6 +118,7 @@ export function EnableBankingExternalMsgModal({
   onMoveExternal,
   onSuccess,
   onClose,
+  initialInstitutionName,
 }: EnableBankingExternalMsgModalProps) {
   const { t } = useTranslation();
 
@@ -152,6 +153,23 @@ export function EnableBankingExternalMsgModal({
     isLoading: isBankOptionsLoading,
     isError: isBankOptionError,
   } = useAvailableBanks(country, isEnableBankingSetupComplete);
+
+  // Pre-select the bank when re-authorizing a known account: once the ASPSP
+  // list for the (detected or chosen) country loads, select the entry whose
+  // name matches the account's institution.
+  useEffect(() => {
+    if (!initialInstitutionName || selectedAspsp || !bankOptions?.length) {
+      return;
+    }
+    const match = bankOptions.find(
+      bank =>
+        bank.id.slice(bank.id.indexOf(':') + 1).toLowerCase() ===
+        initialInstitutionName.toLowerCase(),
+    );
+    if (match) {
+      setSelectedAspsp(match.id);
+    }
+  }, [bankOptions, initialInstitutionName, selectedAspsp]);
   const {
     configuredEnableBanking: isConfigured,
     isLoading: isConfigurationLoading,

@@ -184,6 +184,7 @@ export type Modal =
           | { error: 'unknown'; message?: string }
           | { data: { accounts: SyncServerEnableBankingAccount[] } }
         >;
+        initialInstitutionName?: string | undefined;
         onClose?: (() => void) | undefined;
         onSuccess: (data: {
           accounts: SyncServerEnableBankingAccount[];

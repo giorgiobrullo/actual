@@ -13,11 +13,13 @@ function _authorize(
   {
     onSuccess,
     onClose,
+    initialInstitutionName,
   }: {
     onSuccess: (data: {
       accounts: SyncServerEnableBankingAccount[];
     }) => Promise<void>;
     onClose?: () => void;
+    initialInstitutionName?: string;
   },
 ) {
   dispatch(
@@ -25,6 +27,7 @@ function _authorize(
       modal: {
         name: 'enablebanking-external-msg',
         options: {
+          initialInstitutionName,
           onMoveExternal: async ({
             aspspId,
             country,
@@ -129,8 +132,10 @@ function _authorize(
 export async function authorizeBank(
   dispatch: AppDispatch,
   upgradingAccountId?: AccountEntity['id'],
+  initialInstitutionName?: string,
 ) {
   _authorize(dispatch, {
+    initialInstitutionName,
     onSuccess: async data => {
       dispatch(
         pushModal({

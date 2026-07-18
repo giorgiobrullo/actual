@@ -143,7 +143,11 @@ export function AccountSyncCheck() {
 
       if (acc.account_id) {
         if (acc.account_sync_source === 'enableBanking') {
-          void authorizeEnableBanking(dispatch);
+          void authorizeEnableBanking(
+            dispatch,
+            acc.id,
+            acc.bankName ?? undefined,
+          );
         } else if (acc.account_sync_source === 'goCardless') {
           void authorizeGoCardless(dispatch);
         } else if (acc.account_sync_source === 'amex') {

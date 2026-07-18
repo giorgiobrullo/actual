@@ -12,6 +12,7 @@ import {
 
 import type {
   EnableBankingSession,
+  EnableBankingTransaction,
   PsuHeaders,
 } from './services/enablebanking-service';
 import {
@@ -478,7 +479,7 @@ app.post(
 app.post(
   '/transactions',
   handleError(async (req: Request, res: Response) => {
-    const { accountId, startDate } = req.body || {};
+    const { accountId, startDate, isInitialSync } = req.body || {};
 
     if (!accountId || !startDate) {
       res.send({
@@ -515,20 +516,73 @@ app.post(
         startingBalance = preferredBalance.balanceAmount.amount;
       }
 
-      // Fetch all paginated transactions
-      const rawTransactions = await enableBankingService.getAllTransactions(
-        accountId,
-        dateFrom,
-        dateTo,
-        psuHeaders,
-      );
+      // Fetch all paginated transactions. On the first sync of an account,
+      // also fetch with strategy=longest so the bank returns its full
+      // available history — that strategy omits pending transactions, so the
+      // default fetch still provides those. The two result sets overlap and
+      // may carry different transaction IDs for the same movement, hence the
+      // content-based de-duplication below.
+      let rawTransactions: EnableBankingTransaction[];
+      if (isInitialSync) {
+        // Widen the window for the historical fetch; the shared client start
+        // date only covers recent transactions.
+        const longestFrom = new Date(dateTo);
+        longestFrom.setFullYear(longestFrom.getFullYear() - 1);
+        const longestDateFrom = [
+          dateFrom,
+          longestFrom.toISOString().split('T')[0],
+        ].sort()[0];
+
+        const [historical, current] = await Promise.all([
+          enableBankingService
+            .getAllTransactions(
+              accountId,
+              longestDateFrom,
+              dateTo,
+              psuHeaders,
+              'longest',
+            )
+            .catch((error: unknown) => {
+              // Not all banks support strategy=longest or wide date ranges;
+              // fall back to the default fetch alone instead of failing the
+              // whole initial sync.
+              debug('strategy=longest initial fetch failed: %s', error);
+              return [] as EnableBankingTransaction[];
+            }),
+          enableBankingService.getAllTransactions(
+            accountId,
+            dateFrom,
+            dateTo,
+            psuHeaders,
+          ),
+        ]);
+        rawTransactions = [...historical, ...current];
+      } else {
+        rawTransactions = await enableBankingService.getAllTransactions(
+          accountId,
+          dateFrom,
+          dateTo,
+          psuHeaders,
+        );
+      }
 
       const all: ReturnType<typeof normalizeTransaction>[] = [];
       const booked: ReturnType<typeof normalizeTransaction>[] = [];
       const pending: ReturnType<typeof normalizeTransaction>[] = [];
+      const seen = new Set<string>();
 
       for (const tx of rawTransactions) {
         const normalized = normalizeTransaction(tx);
+
+        // De-duplicate the overlap between the strategy=longest and default
+        // fetches by content, since their transaction IDs may differ.
+        if (isInitialSync) {
+          const key = `${normalized.date}|${normalized.transactionAmount.amount}|${normalized.payeeName}`;
+          if (seen.has(key)) {
+            continue;
+          }
+          seen.add(key);
+        }
 
         // Drop records Actual's client can't insert (empty/non-ISO date or
         // non-numeric amount) — one of them would otherwise abort the entire

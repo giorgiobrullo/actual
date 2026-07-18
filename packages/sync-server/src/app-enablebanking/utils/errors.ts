@@ -46,6 +46,14 @@ export function handleEnableBankingError(
     const lowerErrorType = (errorType || '').toLowerCase();
     const lowerMessage = (message || '').toLowerCase();
     if (
+      lowerErrorType === 'wrong_date_interval' ||
+      lowerErrorType === 'wrong_transactions_period'
+    ) {
+      const friendly =
+        'The requested transaction history range is not supported by this bank — many banks only provide the most recent ~90 days.';
+      return new EnableBankingError(friendly, 'INVALID_INPUT', friendly);
+    }
+    if (
       lowerErrorType === 'closed_session' ||
       lowerErrorType === 'expired_session' ||
       lowerMessage.includes('session') ||

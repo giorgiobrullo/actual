@@ -35,6 +35,8 @@ import type {
   TransactionEntity,
 } from '#types/models';
 
+import { downloadAmexTransactions } from './amex';
+import { downloadCartaYouTransactions } from './cartayou';
 import { getStartingBalancePayee } from './payees';
 import { title } from './title';
 
@@ -1186,6 +1188,10 @@ export async function syncAccount(
     download = await downloadPluggyAiTransactions(acctId, syncStartDate);
   } else if (acctRow.account_sync_source === 'akahu') {
     download = await downloadAkahuTransactions(acctId, syncStartDate);
+  } else if (acctRow.account_sync_source === 'amex') {
+    download = await downloadAmexTransactions(acctId, syncStartDate);
+  } else if (acctRow.account_sync_source === 'cartayou') {
+    download = await downloadCartaYouTransactions(acctId, syncStartDate);
   } else if (acctRow.account_sync_source === 'goCardless') {
     download = await downloadGoCardlessTransactions(
       userId,

@@ -11,6 +11,8 @@ import type { AccountEntity } from '@actual-app/core/types/models';
 
 import { useUnlinkAccountMutation } from '#accounts';
 import { getFailedSyncError, isAccountFailedSync } from '#accounts/syncStatus';
+import { authorizeAmex } from '#amex';
+import { authorizeCartaYou } from '#cartayou';
 import { Link } from '#components/common/Link';
 import { authorizeBank as authorizeEnableBanking } from '#enablebanking';
 import { authorizeBank as authorizeGoCardless } from '#gocardless';
@@ -74,6 +76,41 @@ function useErrorMessage() {
           'This account was not found in SimpleFIN. Try unlinking and relinking the account.',
         );
 
+      case 'AMEX_NOT_CONFIGURED':
+        return t(
+          'American Express is not configured. Please set up your credentials in the Amex setup modal.',
+        );
+
+      case 'AMEX_AUTH_FAILED':
+        return t(
+          'American Express authentication failed. This often happens when Amex detects a datacenter IP. Try configuring a proxy or check your credentials.',
+        );
+
+      case 'AMEX_SESSION_EXPIRED':
+        return t(
+          'Your American Express session has expired. Please log in again.',
+        );
+
+      case 'AMEX_2FA_REQUIRED':
+        return t(
+          'American Express requires two-factor authentication. Please configure IMAP settings to automatically retrieve the verification code.',
+        );
+
+      case 'CARTAYOU_NOT_CONFIGURED':
+        return t(
+          'Carta You is not configured. Please set up your credentials in the Carta You setup modal.',
+        );
+
+      case 'AUTH_FAILED':
+        return t(
+          'Authentication failed. Please check your credentials and try again.',
+        );
+
+      case 'SMS_REQUIRED':
+        return t(
+          'SMS verification is required but could not be completed automatically. Please try again.',
+        );
+
       default:
     }
 
@@ -109,6 +146,10 @@ export function AccountSyncCheck() {
           void authorizeEnableBanking(dispatch);
         } else if (acc.account_sync_source === 'goCardless') {
           void authorizeGoCardless(dispatch);
+        } else if (acc.account_sync_source === 'amex') {
+          authorizeAmex(dispatch, acc.id);
+        } else if (acc.account_sync_source === 'cartayou') {
+          authorizeCartaYou(dispatch, acc.id);
         }
       }
     },
@@ -143,7 +184,12 @@ export function AccountSyncCheck() {
   const { type, code } = error;
   const showAuth =
     (type === 'ITEM_ERROR' && code === 'ITEM_LOGIN_REQUIRED') ||
-    (type === 'INVALID_INPUT' && code === 'INVALID_ACCESS_TOKEN');
+    (type === 'INVALID_INPUT' && code === 'INVALID_ACCESS_TOKEN') ||
+    // Amex errors
+    type === 'AMEX_AUTH_FAILED' ||
+    type === 'AMEX_SESSION_EXPIRED' ||
+    // Carta You errors
+    type === 'AUTH_FAILED';
 
   return (
     <View>

@@ -1,7 +1,9 @@
 export type * from './account';
 export type * from './akahu';
+export type { SyncServerAmexAccount } from './amex';
 export type * from './bank';
 export type * from './bank-sync';
+export type { SyncServerCartaYouAccount } from './cartayou';
 export type * from './category';
 export type * from './category-group';
 export type * from './dashboard';

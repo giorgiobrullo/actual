@@ -14,6 +14,8 @@ import { currentDay, subDays } from '@actual-app/core/shared/months';
 import type {
   AccountEntity,
   SyncServerAkahuAccount,
+  SyncServerAmexAccount,
+  SyncServerCartaYouAccount,
   SyncServerEnableBankingAccount,
   SyncServerGoCardlessAccount,
   SyncServerPluggyAiAccount,
@@ -23,6 +25,8 @@ import { format as formatDate, parseISO } from 'date-fns';
 
 import {
   useLinkAccountAkahuMutation,
+  useLinkAccountAmexMutation,
+  useLinkAccountCartaYouMutation,
   useLinkAccountEnableBankingMutation,
   useLinkAccountMutation,
   useLinkAccountPluggyAiMutation,
@@ -103,6 +107,18 @@ export type SelectLinkedAccountsModalProps =
       externalAccounts: SyncServerAkahuAccount[];
       syncSource: 'akahu';
       upgradingAccountId?: string;
+    }
+  | {
+      requisitionId?: undefined;
+      externalAccounts: SyncServerAmexAccount[];
+      syncSource: 'amex';
+      upgradingAccountId?: string;
+    }
+  | {
+      requisitionId?: undefined;
+      externalAccounts: SyncServerCartaYouAccount[];
+      syncSource: 'cartayou';
+      upgradingAccountId?: string;
     };
 
 export function SelectLinkedAccountsModal({
@@ -136,6 +152,18 @@ export function SelectLinkedAccountsModal({
           return {
             syncSource: 'akahu',
             externalAccounts: toSort as SyncServerAkahuAccount[],
+            upgradingAccountId,
+          };
+        case 'amex':
+          return {
+            syncSource: 'amex',
+            externalAccounts: toSort as SyncServerAmexAccount[],
+            upgradingAccountId,
+          };
+        case 'cartayou':
+          return {
+            syncSource: 'cartayou',
+            externalAccounts: toSort as SyncServerCartaYouAccount[],
             upgradingAccountId,
           };
         case 'goCardless':
@@ -221,6 +249,8 @@ export function SelectLinkedAccountsModal({
   const linkAccountSimpleFin = useLinkAccountSimpleFinMutation();
   const linkAccountPluggyAi = useLinkAccountPluggyAiMutation();
   const linkAccountAkahu = useLinkAccountAkahuMutation();
+  const linkAccountAmex = useLinkAccountAmexMutation();
+  const linkAccountCartaYou = useLinkAccountCartaYouMutation();
   const linkAccountEnableBanking = useLinkAccountEnableBankingMutation();
 
   async function onNext() {
@@ -302,6 +332,36 @@ export function SelectLinkedAccountsModal({
             startingDate,
             startingBalance,
           });
+        } else if (propsWithSortedExternalAccounts.syncSource === 'amex') {
+          linkAccountAmex.mutate({
+            externalAccount:
+              propsWithSortedExternalAccounts.externalAccounts[
+                externalAccountIndex
+              ],
+            upgradingId:
+              chosenLocalAccountId !== addOnBudgetAccountOption.id &&
+              chosenLocalAccountId !== addOffBudgetAccountOption.id
+                ? chosenLocalAccountId
+                : undefined,
+            offBudget,
+            startingDate,
+            startingBalance,
+          });
+        } else if (propsWithSortedExternalAccounts.syncSource === 'cartayou') {
+          linkAccountCartaYou.mutate({
+            externalAccount:
+              propsWithSortedExternalAccounts.externalAccounts[
+                externalAccountIndex
+              ],
+            upgradingId:
+              chosenLocalAccountId !== addOnBudgetAccountOption.id &&
+              chosenLocalAccountId !== addOffBudgetAccountOption.id
+                ? chosenLocalAccountId
+                : undefined,
+            offBudget,
+            startingDate,
+            startingBalance,
+          });
         } else if (
           propsWithSortedExternalAccounts.syncSource === 'enableBanking'
         ) {
@@ -351,7 +411,9 @@ export function SelectLinkedAccountsModal({
       | SyncServerGoCardlessAccount
       | SyncServerSimpleFinAccount
       | SyncServerPluggyAiAccount
-      | SyncServerAkahuAccount,
+      | SyncServerAkahuAccount
+      | SyncServerAmexAccount
+      | SyncServerCartaYouAccount,
     localAccountId: string | null | undefined,
   ) {
     setChosenAccounts(accounts => {
@@ -816,7 +878,9 @@ function getInstitutionName(
     | SyncServerGoCardlessAccount
     | SyncServerSimpleFinAccount
     | SyncServerPluggyAiAccount
-    | SyncServerEnableBankingAccount,
+    | SyncServerEnableBankingAccount
+    | SyncServerAmexAccount
+    | SyncServerCartaYouAccount,
 ) {
   if (typeof externalAccount?.institution === 'string') {
     return externalAccount?.institution ?? '';

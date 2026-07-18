@@ -6,6 +6,8 @@ import type {
   AccountEntity,
   CategoryEntity,
   SyncServerAkahuAccount,
+  SyncServerAmexAccount,
+  SyncServerCartaYouAccount,
   SyncServerEnableBankingAccount,
   SyncServerGoCardlessAccount,
   SyncServerPluggyAiAccount,
@@ -576,6 +578,90 @@ export function useLinkAccountEnableBankingMutation() {
         dispatch,
         t(
           'There was an error linking the account to Enable Banking. Please try again.',
+        ),
+        error,
+      );
+    },
+  });
+}
+
+type LinkAccountAmexPayload = LinkAccountBasePayload & {
+  externalAccount: SyncServerAmexAccount;
+};
+
+export function useLinkAccountAmexMutation() {
+  const queryClient = useQueryClient();
+  const dispatch = useDispatch();
+  const { t } = useTranslation();
+
+  return useMutation({
+    mutationFn: async ({
+      externalAccount,
+      upgradingId,
+      offBudget,
+      startingDate,
+      startingBalance,
+    }: LinkAccountAmexPayload) => {
+      await send('amex-accounts-link', {
+        externalAccount,
+        upgradingId,
+        offBudget,
+        startingDate,
+        startingBalance,
+      });
+    },
+    onSuccess: () => {
+      invalidateQueries(queryClient);
+      invalidateQueries(queryClient, payeeQueries.lists());
+    },
+    onError: error => {
+      console.error('Error linking account to American Express:', error);
+      dispatchErrorNotification(
+        dispatch,
+        t(
+          'There was an error linking the account to American Express. Please try again.',
+        ),
+        error,
+      );
+    },
+  });
+}
+
+type LinkAccountCartaYouPayload = LinkAccountBasePayload & {
+  externalAccount: SyncServerCartaYouAccount;
+};
+
+export function useLinkAccountCartaYouMutation() {
+  const queryClient = useQueryClient();
+  const dispatch = useDispatch();
+  const { t } = useTranslation();
+
+  return useMutation({
+    mutationFn: async ({
+      externalAccount,
+      upgradingId,
+      offBudget,
+      startingDate,
+      startingBalance,
+    }: LinkAccountCartaYouPayload) => {
+      await send('cartayou-accounts-link', {
+        externalAccount,
+        upgradingId,
+        offBudget,
+        startingDate,
+        startingBalance,
+      });
+    },
+    onSuccess: () => {
+      invalidateQueries(queryClient);
+      invalidateQueries(queryClient, payeeQueries.lists());
+    },
+    onError: error => {
+      console.error('Error linking account to Carta You:', error);
+      dispatchErrorNotification(
+        dispatch,
+        t(
+          'There was an error linking the account to Carta You. Please try again.',
         ),
         error,
       );

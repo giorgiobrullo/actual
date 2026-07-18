@@ -8,12 +8,16 @@ import type {
 } from '@actual-app/core/types/models';
 import type { SyncServerSimpleFinAccount } from '@actual-app/core/types/models/simplefin';
 
+import { authorizeAmex, deconfigureAmex } from '#amex';
 import { useAuth } from '#auth/AuthProvider';
 import { Permissions } from '#auth/types';
+import { authorizeCartaYou, deconfigureCartaYou } from '#cartayou';
 import { useMultiuserEnabled } from '#components/ServerContext';
 import { authorizeBank as authorizeEnableBanking } from '#enablebanking';
 import { authorizeBank } from '#gocardless';
 import { useAkahuStatus } from '#hooks/useAkahuStatus';
+import { useAmexStatus } from '#hooks/useAmexStatus';
+import { useCartaYouStatus } from '#hooks/useCartaYouStatus';
 import { useEnableBankingStatus } from '#hooks/useEnableBankingStatus';
 import { useFeatureFlag } from '#hooks/useFeatureFlag';
 import { useGoCardlessStatus } from '#hooks/useGoCardlessStatus';
@@ -112,6 +116,12 @@ export function useBuiltInBankSyncProviders({
   const [isAkahuSetupComplete, setIsAkahuSetupComplete] = useState<
     boolean | null
   >(null);
+  const [isAmexSetupComplete, setIsAmexSetupComplete] = useState<
+    boolean | null
+  >(null);
+  const [isCartaYouSetupComplete, setIsCartaYouSetupComplete] = useState<
+    boolean | null
+  >(null);
   const [loadingSimpleFinAccounts, setLoadingSimpleFinAccounts] =
     useState(false);
   const [loadingAkahuAccounts, setLoadingAkahuAccounts] = useState(false);
@@ -124,6 +134,8 @@ export function useBuiltInBankSyncProviders({
   const { configuredAkahu } = useAkahuStatus(akahuEnabled);
   const { configuredEnableBanking, isLoading: isEnableBankingLoading } =
     useEnableBankingStatus(enableBankingEnabled);
+  const { configuredAmex } = useAmexStatus();
+  const { configuredCartaYou } = useCartaYouStatus();
 
   useEffect(() => {
     setIsGoCardlessSetupComplete(configuredGoCardless);
@@ -144,6 +156,14 @@ export function useBuiltInBankSyncProviders({
   useEffect(() => {
     setIsAkahuSetupComplete(configuredAkahu);
   }, [configuredAkahu]);
+
+  useEffect(() => {
+    setIsAmexSetupComplete(configuredAmex);
+  }, [configuredAmex]);
+
+  useEffect(() => {
+    setIsCartaYouSetupComplete(configuredCartaYou);
+  }, [configuredCartaYou]);
 
   const onGoCardlessInit = useCallback(() => {
     dispatch(
@@ -345,6 +365,32 @@ export function useBuiltInBankSyncProviders({
       notifyResetFailure('Akahu', error);
     }
   }, [notifyResetFailure]);
+
+  const onAmexReset = useCallback(async () => {
+    try {
+      await deconfigureAmex();
+      setIsAmexSetupComplete(false);
+    } catch (error) {
+      notifyResetFailure('American Express', error);
+    }
+  }, [notifyResetFailure]);
+
+  const onCartaYouReset = useCallback(async () => {
+    try {
+      await deconfigureCartaYou();
+      setIsCartaYouSetupComplete(false);
+    } catch (error) {
+      notifyResetFailure('Carta You', error);
+    }
+  }, [notifyResetFailure]);
+
+  const onConnectAmex = useCallback(() => {
+    authorizeAmex(dispatch, upgradingAccountId);
+  }, [dispatch, upgradingAccountId]);
+
+  const onConnectCartaYou = useCallback(() => {
+    authorizeCartaYou(dispatch, upgradingAccountId);
+  }, [dispatch, upgradingAccountId]);
 
   const onConnectGoCardless = useCallback(() => {
     if (!isGoCardlessSetupComplete) {
@@ -598,6 +644,8 @@ export function useBuiltInBankSyncProviders({
     pluggyai: Boolean(isPluggyAiSetupComplete),
     enableBanking: Boolean(isEnableBankingSetupComplete),
     akahu: Boolean(isAkahuSetupComplete),
+    amex: Boolean(isAmexSetupComplete),
+    cartayou: Boolean(isCartaYouSetupComplete),
   } satisfies Record<BankSyncProviders, boolean>;
 
   const providers = useMemo<BuiltInBankSyncProviderState[]>(() => {
@@ -680,6 +728,32 @@ export function useBuiltInBankSyncProviders({
       });
     }
 
+    baseProviders.push({
+      id: 'amex',
+      displayName: 'American Express (Italy)',
+      description: t(
+        'Link an American Express Italy card to automatically download transactions.',
+      ),
+      isConfigured: configuredProviders.amex,
+      canConfigure: canConfigureProviders,
+      onConfigure: onConnectAmex,
+      onLink: onConnectAmex,
+      onReset: onAmexReset,
+    });
+
+    baseProviders.push({
+      id: 'cartayou',
+      displayName: 'Carta You (Advanzia)',
+      description: t(
+        'Link a Carta You (Advanzia) card to automatically download transactions.',
+      ),
+      isConfigured: configuredProviders.cartayou,
+      canConfigure: canConfigureProviders,
+      onConfigure: onConnectCartaYou,
+      onLink: onConnectCartaYou,
+      onReset: onCartaYouReset,
+    });
+
     return baseProviders;
   }, [
     canConfigureProviders,
@@ -688,18 +762,24 @@ export function useBuiltInBankSyncProviders({
     configuredProviders.pluggyai,
     configuredProviders.simpleFin,
     configuredProviders.akahu,
+    configuredProviders.amex,
+    configuredProviders.cartayou,
     enableBankingEnabled,
     akahuEnabled,
     isEnableBankingLoading,
     loadingSimpleFinAccounts,
     loadingAkahuAccounts,
     onConnectAkahu,
+    onConnectAmex,
+    onConnectCartaYou,
     onConnectEnableBanking,
     onConnectGoCardless,
     onConnectPluggyAi,
     onConnectSimpleFin,
     onAkahuInit,
     onAkahuReset,
+    onAmexReset,
+    onCartaYouReset,
     onEnableBankingInit,
     onEnableBankingReset,
     onGoCardlessInit,

@@ -17,8 +17,10 @@ import { AccountGroupsModal } from './modals/AccountGroupsModal';
 import { AccountMenuModal } from './modals/AccountMenuModal';
 import { AccountReconcileModal } from './modals/AccountReconcileModal';
 import { AkahuInitialiseModal } from './modals/AkahuInitialiseModal';
+import { AmexSetupAccountModal } from './modals/AmexSetupAccountModal';
 import { BudgetAutomationsModal } from './modals/BudgetAutomationsModal';
 import { BudgetPageMenuModal } from './modals/BudgetPageMenuModal';
+import { CartaYouSetupAccountModal } from './modals/CartaYouSetupAccountModal';
 import { CategoryAutocompleteModal } from './modals/CategoryAutocompleteModal';
 import { CategoryGroupAutocompleteModal } from './modals/CategoryGroupAutocompleteModal';
 import { CategoryGroupMenuModal } from './modals/CategoryGroupMenuModal';
@@ -204,6 +206,12 @@ export function Modals() {
 
         case 'enablebanking-init':
           return <EnableBankingInitialiseModal key={key} {...modal.options} />;
+
+        case 'amex-setup-account':
+          return <AmexSetupAccountModal key={key} {...modal.options} />;
+
+        case 'cartayou-setup-account':
+          return <CartaYouSetupAccountModal key={key} {...modal.options} />;
 
         case 'enablebanking-external-msg':
           return <EnableBankingExternalMsgModal key={key} {...modal.options} />;

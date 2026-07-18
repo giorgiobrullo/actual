@@ -19,6 +19,18 @@ export const SecretName = {
   akahu_appToken: 'akahu_appToken',
   enablebanking_applicationId: 'enablebanking_applicationId',
   enablebanking_secretKey: 'enablebanking_secretKey',
+  amex_username: 'amex_username',
+  amex_password: 'amex_password',
+  amex_imap_host: 'amex_imap_host',
+  amex_imap_port: 'amex_imap_port',
+  amex_imap_user: 'amex_imap_user',
+  amex_imap_password: 'amex_imap_password',
+  amex_imap_folder: 'amex_imap_folder',
+  amex_proxy: 'amex_proxy',
+  captcha_2captcha_apikey: 'captcha_2captcha_apikey',
+  cartayou_username: 'cartayou_username',
+  cartayou_password: 'cartayou_password',
+  cartayou_sms_secret: 'cartayou_sms_secret',
 };
 
 function getSecretKey(name, fileId) {

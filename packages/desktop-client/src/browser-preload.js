@@ -15,11 +15,15 @@ const backendWorkerUrl = new URL('./browser-server.js', import.meta.url);
 // everything else.
 
 const IS_DEV = import.meta.env.DEV;
+// Append the build's commit hash when available, so custom-built deploys can
+// be told apart from the release version they are based on.
 const ACTUAL_VERSION = Platform.isPlaywright
   ? '99.9.9'
   : import.meta.env.REACT_APP_REVIEW_ID
     ? '.preview'
-    : packageJson.version;
+    : import.meta.env.REACT_APP_COMMIT_HASH
+      ? `${packageJson.version}-${import.meta.env.REACT_APP_COMMIT_HASH}`
+      : packageJson.version;
 
 // The OIDC callback (/openid-cb) is reached via a full-page navigation back
 // from the OpenID provider. Routing it through the SharedWorker coordinator is

@@ -63,8 +63,10 @@ RUN cp -r ./packages/desktop-client/build ./node_modules/@actual-app/web/build
 
 FROM node:24-bookworm-slim AS prod
 
-# Minimal runtime dependencies
-RUN apt-get update && apt-get install -y tini && apt-get clean -y && rm -rf /var/lib/apt/lists/*
+# Minimal runtime dependencies. xvfb provides a virtual X display so the
+# patchright scrapers can run a headful browser (far less detectable than
+# headless) on a server with no physical display.
+RUN apt-get update && apt-get install -y tini xvfb && apt-get clean -y && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user
 ARG USERNAME=actual
@@ -82,16 +84,19 @@ COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/packages/sync-server/package.json ./
 COPY --from=builder /app/packages/sync-server/build ./build
 
-# Chromium + system libraries for the patchright-driven bank integrations
-# (app-amex, app-cartayou). Postinstall scripts are disabled workspace-wide
-# (.yarnrc.yml enableScripts: false), so the browser download must be explicit.
-# The container may run as an arbitrary uid, so install to a fixed
-# world-readable path instead of the invoking user's home.
+# Real Google Chrome + system libraries for the patchright-driven bank
+# integrations (app-amex, app-cartayou). Patchright recommends real Chrome
+# (channel: 'chrome') over the bundled Chromium for stealth. Postinstall
+# scripts are disabled workspace-wide (.yarnrc.yml enableScripts: false), so
+# the browser install must be explicit. The container may run as an arbitrary
+# uid, so install to a fixed world-readable path instead of the invoking
+# user's home.
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN npx patchright install --with-deps chromium \
+RUN npx patchright install --with-deps chrome \
     && chmod -R a+rX /ms-playwright \
     && apt-get clean -y && rm -rf /var/lib/apt/lists/*
 
-ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
+# Run the server under a virtual X display so headful Chrome works headless-less.
+ENTRYPOINT ["/usr/bin/tini", "-g", "--", "xvfb-run", "-a", "--server-args=-screen 0 1280x1024x24", "node", "build/app.js"]
 EXPOSE 5006
-CMD ["node", "build/app.js"]
+CMD []

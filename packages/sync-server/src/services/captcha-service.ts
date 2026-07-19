@@ -91,15 +91,22 @@ export async function detectRecaptcha(
 ): Promise<{ sitekey: string; type: 'v2' | 'v3' | 'invisible' } | null> {
   debug('Checking for CAPTCHA on page: %s', page.url());
 
+  // Some sites (e.g. Amex) monkeypatch the global `eval`, which makes
+  // Playwright-Firefox's page.evaluate throw "eval is disabled". CAPTCHA
+  // detection is best-effort, so every page.evaluate below degrades to its
+  // empty default on failure and the function returns null ("no CAPTCHA").
+
   // First, let's see what iframes exist on the page for debugging
-  const iframeInfo = await page.evaluate(() => {
-    const iframes = Array.from(document.querySelectorAll('iframe'));
-    return iframes.map(f => ({
-      src: f.src?.substring(0, 100),
-      title: f.title,
-      id: f.id,
-    }));
-  });
+  const iframeInfo = await page
+    .evaluate(() => {
+      const iframes = Array.from(document.querySelectorAll('iframe'));
+      return iframes.map(f => ({
+        src: f.src?.substring(0, 100),
+        title: f.title,
+        id: f.id,
+      }));
+    })
+    .catch(() => [] as Array<{ src?: string; title: string; id: string }>);
   if (iframeInfo.length > 0) {
     debug('Found %d iframes: %o', iframeInfo.length, iframeInfo);
   }
@@ -113,33 +120,37 @@ export async function detectRecaptcha(
     debug('Found CAPTCHA iframe');
 
     // Try to extract sitekey from various places
-    const sitekey = await page.evaluate(() => {
-      // Check for data-sitekey attribute
-      const recaptchaDiv = document.querySelector('.g-recaptcha[data-sitekey]');
-      if (recaptchaDiv) {
-        return recaptchaDiv.getAttribute('data-sitekey');
-      }
-
-      // Check in grecaptcha render parameters
-      const scripts = Array.from(document.querySelectorAll('script'));
-      for (const script of scripts) {
-        const match = script.textContent?.match(
-          /grecaptcha\.render\([^,]+,\s*\{[^}]*sitekey:\s*['"]([^'"]+)['"]/,
+    const sitekey = await page
+      .evaluate(() => {
+        // Check for data-sitekey attribute
+        const recaptchaDiv = document.querySelector(
+          '.g-recaptcha[data-sitekey]',
         );
-        if (match) return match[1];
-      }
+        if (recaptchaDiv) {
+          return recaptchaDiv.getAttribute('data-sitekey');
+        }
 
-      // Check iframe src for sitekey
-      const iframe = document.querySelector(
-        'iframe[src*="recaptcha"]',
-      ) as HTMLIFrameElement;
-      if (iframe?.src) {
-        const url = new URL(iframe.src);
-        return url.searchParams.get('k');
-      }
+        // Check in grecaptcha render parameters
+        const scripts = Array.from(document.querySelectorAll('script'));
+        for (const script of scripts) {
+          const match = script.textContent?.match(
+            /grecaptcha\.render\([^,]+,\s*\{[^}]*sitekey:\s*['"]([^'"]+)['"]/,
+          );
+          if (match) return match[1];
+        }
 
-      return null;
-    });
+        // Check iframe src for sitekey
+        const iframe = document.querySelector(
+          'iframe[src*="recaptcha"]',
+        ) as HTMLIFrameElement;
+        if (iframe?.src) {
+          const url = new URL(iframe.src);
+          return url.searchParams.get('k');
+        }
+
+        return null;
+      })
+      .catch(() => null);
 
     if (sitekey) {
       // Determine type
@@ -152,17 +163,19 @@ export async function detectRecaptcha(
   }
 
   // Check for reCAPTCHA v3 (usually in scripts)
-  const v3Sitekey = await page.evaluate(() => {
-    const scripts = Array.from(document.querySelectorAll('script'));
-    for (const script of scripts) {
-      // Look for grecaptcha.execute calls with sitekey
-      const match = script.textContent?.match(
-        /grecaptcha\.execute\(['"]([^'"]+)['"]/,
-      );
-      if (match) return match[1];
-    }
-    return null;
-  });
+  const v3Sitekey = await page
+    .evaluate(() => {
+      const scripts = Array.from(document.querySelectorAll('script'));
+      for (const script of scripts) {
+        // Look for grecaptcha.execute calls with sitekey
+        const match = script.textContent?.match(
+          /grecaptcha\.execute\(['"]([^'"]+)['"]/,
+        );
+        if (match) return match[1];
+      }
+      return null;
+    })
+    .catch(() => null);
 
   if (v3Sitekey) {
     debug('Found reCAPTCHA v3');

@@ -617,7 +617,7 @@ End Repeat`}
                                 {`Settings > Shortcuts > Automations
 > New Automation
 > Trigger: Message
-> Message Contains: "codice di accesso"
+> Message Contains: "TF Bank"
 > Run Immediately: ON
 > Run Shortcut: [your shortcut]`}
                               </Text>

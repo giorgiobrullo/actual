@@ -63,9 +63,10 @@ RUN cp -r ./packages/desktop-client/build ./node_modules/@actual-app/web/build
 
 FROM node:24-bookworm-slim AS prod
 
-# Minimal runtime dependencies. xvfb provides a virtual X display so the
-# patchright scrapers can run a headful browser (far less detectable than
-# headless) on a server with no physical display.
+# Minimal runtime dependencies. xvfb provides a virtual X display: Camoufox
+# (the anti-detect Firefox used by the bank scrapers) runs a real headful
+# browser inside a virtual display it manages itself, so it needs the Xvfb
+# binary present even though there is no physical display.
 RUN apt-get update && apt-get install -y tini xvfb && apt-get clean -y && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user
@@ -84,19 +85,19 @@ COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/packages/sync-server/package.json ./
 COPY --from=builder /app/packages/sync-server/build ./build
 
-# Real Google Chrome + system libraries for the patchright-driven bank
-# integrations (app-amex, app-cartayou). Patchright recommends real Chrome
-# (channel: 'chrome') over the bundled Chromium for stealth. Postinstall
-# scripts are disabled workspace-wide (.yarnrc.yml enableScripts: false), so
-# the browser install must be explicit. The container may run as an arbitrary
-# uid, so install to a fixed world-readable path instead of the invoking
-# user's home.
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN npx patchright install --with-deps chrome \
-    && chmod -R a+rX /ms-playwright \
+# Camoufox (anti-detect Firefox) for the bank integrations (app-amex,
+# app-cartayou). The browser binary is fetched to a fixed world-readable path
+# (the container may run as an arbitrary uid, so it can't live in a user home),
+# and CAMOUFOX_INSTALL_DIR points camoufox-js there at runtime too. The Firefox
+# OS libraries are installed via Playwright's vetted dependency list. Postinstall
+# scripts are disabled workspace-wide (.yarnrc.yml enableScripts: false), so the
+# fetch must be an explicit build step.
+ENV CAMOUFOX_INSTALL_DIR=/opt/camoufox
+RUN npx -y playwright@1.53.1 install-deps firefox \
+    && npx camoufox-js fetch \
+    && chmod -R a+rX /opt/camoufox \
     && apt-get clean -y && rm -rf /var/lib/apt/lists/*
 
-# Run the server under a virtual X display so headful Chrome works headless-less.
-ENTRYPOINT ["/usr/bin/tini", "-g", "--", "xvfb-run", "-a", "--server-args=-screen 0 1280x1024x24", "node", "build/app.js"]
+ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
 EXPOSE 5006
-CMD []
+CMD ["node", "build/app.js"]

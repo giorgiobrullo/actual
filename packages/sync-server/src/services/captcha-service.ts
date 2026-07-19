@@ -119,41 +119,33 @@ export async function detectRecaptcha(
   if (recaptchaFrame) {
     debug('Found CAPTCHA iframe');
 
-    // Try to extract sitekey from various places
-    const sitekey = await page
-      .evaluate(() => {
-        // Check for data-sitekey attribute
-        const recaptchaDiv = document.querySelector(
-          '.g-recaptcha[data-sitekey]',
-        );
-        if (recaptchaDiv) {
-          return recaptchaDiv.getAttribute('data-sitekey');
-        }
+    // Extract the sitekey WITHOUT page.evaluate. Sites like Amex monkeypatch
+    // the global eval, which breaks page.evaluate ("eval is disabled"); reading
+    // attributes via ElementHandle.getAttribute goes through the Playwright
+    // protocol and is unaffected.
+    let sitekey: string | null = null;
 
-        // Check in grecaptcha render parameters
-        const scripts = Array.from(document.querySelectorAll('script'));
-        for (const script of scripts) {
-          const match = script.textContent?.match(
-            /grecaptcha\.render\([^,]+,\s*\{[^}]*sitekey:\s*['"]([^'"]+)['"]/,
-          );
-          if (match) return match[1];
-        }
+    // Preferred: the data-sitekey attribute on the .g-recaptcha container.
+    const recaptchaDiv = await page.$('.g-recaptcha[data-sitekey]');
+    if (recaptchaDiv) {
+      sitekey = await recaptchaDiv.getAttribute('data-sitekey');
+    }
 
-        // Check iframe src for sitekey
-        const iframe = document.querySelector(
-          'iframe[src*="recaptcha"]',
-        ) as HTMLIFrameElement;
-        if (iframe?.src) {
-          const url = new URL(iframe.src);
-          return url.searchParams.get('k');
+    // Fallback: the reCAPTCHA anchor iframe carries the sitekey as the `k`
+    // query parameter in its src (e.g. .../api2/anchor?ar=1&k=<sitekey>&...).
+    if (!sitekey) {
+      const frameSrc = await recaptchaFrame.getAttribute('src');
+      if (frameSrc) {
+        try {
+          sitekey = new URL(frameSrc).searchParams.get('k');
+        } catch {
+          // Malformed src; leave sitekey null.
         }
-
-        return null;
-      })
-      .catch(() => null);
+      }
+    }
 
     if (sitekey) {
-      // Determine type
+      // Determine type (invisible vs checkbox) via a protocol DOM query.
       const isInvisible = await page.$('.g-recaptcha[data-size="invisible"]');
       return {
         sitekey,

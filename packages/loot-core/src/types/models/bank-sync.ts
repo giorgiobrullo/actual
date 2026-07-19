@@ -29,6 +29,7 @@ export const SYNC_PROVIDERS = [
   'akahu',
   'amex',
   'cartayou',
+  'tfbank',
 ] as const;
 
 export type BankSyncProviders = (typeof SYNC_PROVIDERS)[number];

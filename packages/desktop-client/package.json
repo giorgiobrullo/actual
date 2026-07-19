@@ -30,6 +30,7 @@
     "#global-events": "./src/global-events.ts",
     "#amex": "./src/amex.ts",
     "#cartayou": "./src/cartayou.ts",
+    "#tfbank": "./src/tfbank.ts",
     "#enablebanking": "./src/enablebanking.ts",
     "#gocardless": "./src/gocardless.ts",
     "#i18n": "./src/i18n.ts",

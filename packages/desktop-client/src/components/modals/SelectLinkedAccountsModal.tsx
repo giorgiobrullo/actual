@@ -21,6 +21,7 @@ import type {
   SyncServerGoCardlessAccount,
   SyncServerPluggyAiAccount,
   SyncServerSimpleFinAccount,
+  SyncServerTFBankAccount,
 } from '@actual-app/core/types/models';
 import { format as formatDate, parseISO } from 'date-fns';
 
@@ -32,6 +33,7 @@ import {
   useLinkAccountMutation,
   useLinkAccountPluggyAiMutation,
   useLinkAccountSimpleFinMutation,
+  useLinkAccountTFBankMutation,
   useUnlinkAccountMutation,
 } from '#accounts';
 import { Autocomplete } from '#components/autocomplete/Autocomplete';
@@ -208,6 +210,12 @@ export type SelectLinkedAccountsModalProps =
       externalAccounts: SyncServerCartaYouAccount[];
       syncSource: 'cartayou';
       upgradingAccountId?: string;
+    }
+  | {
+      requisitionId?: undefined;
+      externalAccounts: SyncServerTFBankAccount[];
+      syncSource: 'tfbank';
+      upgradingAccountId?: string;
     };
 
 export function SelectLinkedAccountsModal({
@@ -253,6 +261,12 @@ export function SelectLinkedAccountsModal({
           return {
             syncSource: 'cartayou',
             externalAccounts: toSort as SyncServerCartaYouAccount[],
+            upgradingAccountId,
+          };
+        case 'tfbank':
+          return {
+            syncSource: 'tfbank',
+            externalAccounts: toSort as SyncServerTFBankAccount[],
             upgradingAccountId,
           };
         case 'goCardless':
@@ -311,6 +325,7 @@ export function SelectLinkedAccountsModal({
   const linkAccountAkahu = useLinkAccountAkahuMutation();
   const linkAccountAmex = useLinkAccountAmexMutation();
   const linkAccountCartaYou = useLinkAccountCartaYouMutation();
+  const linkAccountTFBank = useLinkAccountTFBankMutation();
   const linkAccountEnableBanking = useLinkAccountEnableBankingMutation();
 
   async function onNext() {
@@ -418,6 +433,21 @@ export function SelectLinkedAccountsModal({
             startingDate,
             startingBalance,
           });
+        } else if (propsWithSortedExternalAccounts.syncSource === 'tfbank') {
+          linkAccountTFBank.mutate({
+            externalAccount:
+              propsWithSortedExternalAccounts.externalAccounts[
+                externalAccountIndex
+              ],
+            upgradingId:
+              chosenLocalAccountId !== addOnBudgetAccountOption.id &&
+              chosenLocalAccountId !== addOffBudgetAccountOption.id
+                ? chosenLocalAccountId
+                : undefined,
+            offBudget,
+            startingDate,
+            startingBalance,
+          });
         } else if (
           propsWithSortedExternalAccounts.syncSource === 'enableBanking'
         ) {
@@ -481,7 +511,8 @@ export function SelectLinkedAccountsModal({
       | SyncServerPluggyAiAccount
       | SyncServerAkahuAccount
       | SyncServerAmexAccount
-      | SyncServerCartaYouAccount,
+      | SyncServerCartaYouAccount
+      | SyncServerTFBankAccount,
     localAccountId: string | null | undefined,
   ) {
     setChosenAccounts(accounts => {
@@ -970,7 +1001,8 @@ function getInstitutionName(
     | SyncServerPluggyAiAccount
     | SyncServerEnableBankingAccount
     | SyncServerAmexAccount
-    | SyncServerCartaYouAccount,
+    | SyncServerCartaYouAccount
+    | SyncServerTFBankAccount,
 ) {
   if (typeof externalAccount?.institution === 'string') {
     return externalAccount?.institution ?? '';

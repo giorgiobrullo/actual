@@ -20,6 +20,7 @@ import type { AmexToken } from '@actual-app/core/types/models/amex';
 import type { CartaYouToken } from '@actual-app/core/types/models/cartayou';
 import type { CleanupTemplate } from '@actual-app/core/types/models/cleanup-templates';
 import type { Template } from '@actual-app/core/types/models/templates';
+import type { TFBankToken } from '@actual-app/core/types/models/tfbank';
 import { createSlice } from '@reduxjs/toolkit';
 import type { PayloadAction } from '@reduxjs/toolkit';
 
@@ -153,6 +154,12 @@ export type Modal =
       name: 'cartayou-setup-account';
       options: {
         onSuccess: (token: CartaYouToken) => void | Promise<void>;
+      };
+    }
+  | {
+      name: 'tfbank-setup-account';
+      options: {
+        onSuccess: (token: TFBankToken) => void | Promise<void>;
       };
     }
   | {

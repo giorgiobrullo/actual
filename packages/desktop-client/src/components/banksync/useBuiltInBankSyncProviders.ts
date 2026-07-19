@@ -24,9 +24,11 @@ import { useGoCardlessStatus } from '#hooks/useGoCardlessStatus';
 import { usePluggyAiStatus } from '#hooks/usePluggyAiStatus';
 import { useSimpleFinStatus } from '#hooks/useSimpleFinStatus';
 import { useSyncServerStatus } from '#hooks/useSyncServerStatus';
+import { useTFBankStatus } from '#hooks/useTFBankStatus';
 import { pushModal } from '#modals/modalsSlice';
 import { addNotification } from '#notifications/notificationsSlice';
 import { useDispatch } from '#redux';
+import { authorizeTFBank, deconfigureTFBank } from '#tfbank';
 
 import { BUILT_IN_BANK_SYNC_PROVIDERS } from './bankSyncUtils';
 
@@ -122,6 +124,9 @@ export function useBuiltInBankSyncProviders({
   const [isCartaYouSetupComplete, setIsCartaYouSetupComplete] = useState<
     boolean | null
   >(null);
+  const [isTFBankSetupComplete, setIsTFBankSetupComplete] = useState<
+    boolean | null
+  >(null);
   const [loadingSimpleFinAccounts, setLoadingSimpleFinAccounts] =
     useState(false);
   const [loadingAkahuAccounts, setLoadingAkahuAccounts] = useState(false);
@@ -136,6 +141,7 @@ export function useBuiltInBankSyncProviders({
     useEnableBankingStatus(enableBankingEnabled);
   const { configuredAmex } = useAmexStatus();
   const { configuredCartaYou } = useCartaYouStatus();
+  const { configuredTFBank } = useTFBankStatus();
 
   useEffect(() => {
     setIsGoCardlessSetupComplete(configuredGoCardless);
@@ -164,6 +170,10 @@ export function useBuiltInBankSyncProviders({
   useEffect(() => {
     setIsCartaYouSetupComplete(configuredCartaYou);
   }, [configuredCartaYou]);
+
+  useEffect(() => {
+    setIsTFBankSetupComplete(configuredTFBank);
+  }, [configuredTFBank]);
 
   const onGoCardlessInit = useCallback(() => {
     dispatch(
@@ -384,12 +394,25 @@ export function useBuiltInBankSyncProviders({
     }
   }, [notifyResetFailure]);
 
+  const onTFBankReset = useCallback(async () => {
+    try {
+      await deconfigureTFBank();
+      setIsTFBankSetupComplete(false);
+    } catch (error) {
+      notifyResetFailure('TF Bank', error);
+    }
+  }, [notifyResetFailure]);
+
   const onConnectAmex = useCallback(() => {
     authorizeAmex(dispatch, upgradingAccountId);
   }, [dispatch, upgradingAccountId]);
 
   const onConnectCartaYou = useCallback(() => {
     authorizeCartaYou(dispatch, upgradingAccountId);
+  }, [dispatch, upgradingAccountId]);
+
+  const onConnectTFBank = useCallback(() => {
+    authorizeTFBank(dispatch, upgradingAccountId);
   }, [dispatch, upgradingAccountId]);
 
   const onConnectGoCardless = useCallback(() => {
@@ -646,6 +669,7 @@ export function useBuiltInBankSyncProviders({
     akahu: Boolean(isAkahuSetupComplete),
     amex: Boolean(isAmexSetupComplete),
     cartayou: Boolean(isCartaYouSetupComplete),
+    tfbank: Boolean(isTFBankSetupComplete),
   } satisfies Record<BankSyncProviders, boolean>;
 
   const providers = useMemo<BuiltInBankSyncProviderState[]>(() => {
@@ -754,6 +778,19 @@ export function useBuiltInBankSyncProviders({
       onReset: onCartaYouReset,
     });
 
+    baseProviders.push({
+      id: 'tfbank',
+      displayName: 'TF Bank',
+      description: t(
+        'Link a TF Bank card to automatically download transactions.',
+      ),
+      isConfigured: configuredProviders.tfbank,
+      canConfigure: canConfigureProviders,
+      onConfigure: onConnectTFBank,
+      onLink: onConnectTFBank,
+      onReset: onTFBankReset,
+    });
+
     return baseProviders;
   }, [
     canConfigureProviders,
@@ -764,6 +801,7 @@ export function useBuiltInBankSyncProviders({
     configuredProviders.akahu,
     configuredProviders.amex,
     configuredProviders.cartayou,
+    configuredProviders.tfbank,
     enableBankingEnabled,
     akahuEnabled,
     isEnableBankingLoading,
@@ -772,6 +810,7 @@ export function useBuiltInBankSyncProviders({
     onConnectAkahu,
     onConnectAmex,
     onConnectCartaYou,
+    onConnectTFBank,
     onConnectEnableBanking,
     onConnectGoCardless,
     onConnectPluggyAi,
@@ -780,6 +819,7 @@ export function useBuiltInBankSyncProviders({
     onAkahuReset,
     onAmexReset,
     onCartaYouReset,
+    onTFBankReset,
     onEnableBankingInit,
     onEnableBankingReset,
     onGoCardlessInit,

@@ -36,6 +36,7 @@ import type {
   SyncServerGoCardlessAccount,
   SyncServerPluggyAiAccount,
   SyncServerSimpleFinAccount,
+  SyncServerTFBankAccount,
   TransactionEntity,
 } from '#types/models';
 
@@ -44,6 +45,7 @@ import { app as cartayouApp } from './cartayou';
 import * as link from './link';
 import { getStartingBalancePayee } from './payees';
 import * as bankSync from './sync';
+import { app as tfbankApp } from './tfbank';
 
 // Shared base type for link account parameters
 type LinkAccountBaseParams = {
@@ -65,6 +67,7 @@ export type AccountHandlers = {
   'enablebanking-accounts-link': typeof linkEnableBankingAccount;
   'amex-accounts-link': typeof linkAmexAccount;
   'cartayou-accounts-link': typeof linkCartaYouAccount;
+  'tfbank-accounts-link': typeof linkTFBankAccount;
   'account-create': typeof createAccount;
   'account-close': typeof closeAccount;
   'account-reopen': typeof reopenAccount;
@@ -670,6 +673,80 @@ async function linkCartaYouAccount({
       bank: bank.id,
       offbudget: offBudget ? 1 : 0,
       account_sync_source: 'cartayou',
+    });
+    await db.insertPayee({
+      name: '',
+      transfer_acct: id,
+    });
+  }
+
+  const syncRes = await bankSync.syncAccount(
+    undefined,
+    undefined,
+    id,
+    externalAccount.account_id,
+    bank.bank_id,
+    startingDate,
+    startingBalance,
+  );
+
+  await handleSyncResponse(syncRes, id);
+
+  connection.send('sync-event', {
+    type: 'success',
+    tables: ['transactions'],
+  });
+
+  return 'ok';
+}
+
+async function linkTFBankAccount({
+  externalAccount,
+  upgradingId,
+  offBudget = false,
+  startingDate,
+  startingBalance,
+}: LinkAccountBaseParams & {
+  externalAccount: SyncServerTFBankAccount;
+}) {
+  let id;
+
+  const institution = {
+    name: externalAccount.institution ?? null,
+  };
+
+  // All TF Bank accounts share a single provider-level bank entry, matching
+  // the scraper's single-login model.
+  const bank = await link.findOrCreateBank(institution, 'tfbank');
+
+  if (upgradingId) {
+    const accRow = await db.first<db.DbAccount>(
+      'SELECT * FROM accounts WHERE id = ?',
+      [upgradingId],
+    );
+
+    if (!accRow) {
+      throw new Error(`Account with ID ${upgradingId} not found.`);
+    }
+
+    id = accRow.id;
+    await db.update('accounts', {
+      id,
+      account_id: externalAccount.account_id,
+      bank: bank.id,
+      official_name: externalAccount.name,
+      account_sync_source: 'tfbank',
+    });
+  } else {
+    id = uuidv4();
+    await db.insertWithUUID('accounts', {
+      id,
+      account_id: externalAccount.account_id,
+      name: externalAccount.name,
+      official_name: externalAccount.name,
+      bank: bank.id,
+      offbudget: offBudget ? 1 : 0,
+      account_sync_source: 'tfbank',
     });
     await db.insertPayee({
       name: '',
@@ -1909,6 +1986,7 @@ app.method('akahu-accounts-link', linkAkahuAccount);
 app.method('enablebanking-accounts-link', linkEnableBankingAccount);
 app.method('amex-accounts-link', linkAmexAccount);
 app.method('cartayou-accounts-link', linkCartaYouAccount);
+app.method('tfbank-accounts-link', linkTFBankAccount);
 app.method('account-create', mutator(undoable(createAccount)));
 app.method('account-close', mutator(closeAccount));
 app.method('account-reopen', mutator(undoable(reopenAccount)));
@@ -1938,4 +2016,4 @@ app.method('simplefin-batch-sync', simpleFinBatchSync);
 app.method('transactions-import', mutator(undoable(importTransactions)));
 app.method('account-unlink', mutator(unlinkAccount));
 
-app.combine(amexApp, cartayouApp);
+app.combine(amexApp, cartayouApp, tfbankApp);

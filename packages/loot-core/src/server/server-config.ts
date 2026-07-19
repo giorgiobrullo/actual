@@ -11,6 +11,7 @@ type ServerConfig = {
   AKAHU_SERVER: string;
   AMEX_SERVER: string;
   CARTAYOU_SERVER: string;
+  TFBANK_SERVER: string;
   ENABLEBANKING_SERVER: string;
 };
 
@@ -52,6 +53,7 @@ export function getServer(url?: string): ServerConfig | null {
         AKAHU_SERVER: joinURL(url, '/akahu'),
         AMEX_SERVER: joinURL(url, '/amex'),
         CARTAYOU_SERVER: joinURL(url, '/cartayou'),
+        TFBANK_SERVER: joinURL(url, '/tfbank'),
         ENABLEBANKING_SERVER: joinURL(url, '/enablebanking'),
       };
     } catch (error) {

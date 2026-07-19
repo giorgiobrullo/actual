@@ -1,5 +1,5 @@
 import createDebug from 'debug';
-import type { BrowserContext } from 'patchright';
+import type { BrowserContext } from 'playwright-core';
 
 import type { AmexAccount } from '#app-amex/models/amex';
 import { AuthFailedError } from '#app-amex/utils/errors';
@@ -100,9 +100,9 @@ export async function performLogin(): Promise<AmexSession> {
   let context: BrowserContext | null = null;
 
   try {
-    // Launch a stealth-configured patchright context (persistent context +
-    // real Chrome + headful under Xvfb). Optionally route through a proxy
-    // (e.g., socks5://10.0.0.1:1080 for WireGuard/Tailscale).
+    // Launch a stealth-configured Camoufox context (headful Firefox under a
+    // managed virtual display, with humanized cursor movement). Optionally
+    // route through a proxy (e.g. socks5://10.0.0.1:1080 for WireGuard/Tailscale).
     const proxyUrl = getProxy();
 
     // Log configuration status
@@ -313,10 +313,22 @@ export async function performLogin(): Promise<AmexSession> {
       debug('Pre-login CAPTCHA solved');
     }
 
-    // Fill in credentials
+    // Fill in credentials with human-like keystrokes. An instant fill() plus
+    // instant click reads as automation to behavioural bot-scoring (e.g. Amex's
+    // invisible reCAPTCHA); Camoufox humanizes the cursor, and pressSequentially
+    // with a per-key delay humanizes the typing.
     debug('Entering credentials...');
-    await page.fill('#eliloUserID', username);
-    await page.fill('#eliloPassword', password);
+    await page.click('#eliloUserID');
+    await page.locator('#eliloUserID').pressSequentially(username, {
+      delay: 90 + Math.floor(Math.random() * 70),
+    });
+    await page.click('#eliloPassword');
+    await page.locator('#eliloPassword').pressSequentially(password, {
+      delay: 90 + Math.floor(Math.random() * 70),
+    });
+
+    // Small pause before submitting, as a human would.
+    await page.waitForTimeout(400 + Math.floor(Math.random() * 500));
 
     // Click login button
     debug('Clicking login button...');

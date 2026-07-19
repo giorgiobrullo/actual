@@ -20,6 +20,7 @@ const SYNC_PROVIDER_KEYS = [
   'akahu',
   'amex',
   'cartayou',
+  'tfbank',
   'unlinked',
 ] as const satisfies readonly SyncProviders[];
 
@@ -40,6 +41,7 @@ export function getSyncSourceReadable(
     akahu: 'Akahu',
     amex: 'American Express',
     cartayou: 'Carta You',
+    tfbank: 'TF Bank',
     unlinked: translate('Unlinked'),
   };
 }

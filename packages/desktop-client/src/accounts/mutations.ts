@@ -12,6 +12,7 @@ import type {
   SyncServerGoCardlessAccount,
   SyncServerPluggyAiAccount,
   SyncServerSimpleFinAccount,
+  SyncServerTFBankAccount,
   TransactionEntity,
 } from '@actual-app/core/types/models';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -662,6 +663,48 @@ export function useLinkAccountCartaYouMutation() {
         dispatch,
         t(
           'There was an error linking the account to Carta You. Please try again.',
+        ),
+        error,
+      );
+    },
+  });
+}
+
+type LinkAccountTFBankPayload = LinkAccountBasePayload & {
+  externalAccount: SyncServerTFBankAccount;
+};
+
+export function useLinkAccountTFBankMutation() {
+  const queryClient = useQueryClient();
+  const dispatch = useDispatch();
+  const { t } = useTranslation();
+
+  return useMutation({
+    mutationFn: async ({
+      externalAccount,
+      upgradingId,
+      offBudget,
+      startingDate,
+      startingBalance,
+    }: LinkAccountTFBankPayload) => {
+      await send('tfbank-accounts-link', {
+        externalAccount,
+        upgradingId,
+        offBudget,
+        startingDate,
+        startingBalance,
+      });
+    },
+    onSuccess: () => {
+      invalidateQueries(queryClient);
+      invalidateQueries(queryClient, payeeQueries.lists());
+    },
+    onError: error => {
+      console.error('Error linking account to TF Bank:', error);
+      dispatchErrorNotification(
+        dispatch,
+        t(
+          'There was an error linking the account to TF Bank. Please try again.',
         ),
         error,
       );

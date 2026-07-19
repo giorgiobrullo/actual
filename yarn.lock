@@ -194,6 +194,7 @@ __metadata:
     "@typescript/native-preview": "npm:beta"
     akahu: "npm:^2.5.1"
     argon2: "npm:^0.44.0"
+    avarda-mypages: "git+https://github.com/giorgiobrullo/avarda-mypages.git#v0.1.0"
     bcrypt: "npm:^6.0.0"
     better-sqlite3: "npm:^12.11.1"
     camoufox-js: "npm:^0.11.2"
@@ -10553,6 +10554,13 @@ __metadata:
   dependencies:
     possible-typed-array-names: "npm:^1.0.0"
   checksum: 10/6c9da3a66caddd83c875010a1ca8ef11eac02ba15fb592dc9418b2b5e7b77b645fa7729380a92d9835c2f05f2ca1b6251f39b993e0feb3f1517c74fa1af02cab
+  languageName: node
+  linkType: hard
+
+"avarda-mypages@git+https://github.com/giorgiobrullo/avarda-mypages.git#v0.1.0":
+  version: 0.1.0
+  resolution: "avarda-mypages@https://github.com/giorgiobrullo/avarda-mypages.git#commit=80e959a2b6db0eee7f1976bbb6c22b1ca4c4c60a"
+  checksum: 10/2c6f171faa377dc95c9943781e3e63c0707a594eba9c082646d119e8070608cbcae96d35773c96c070664c47e35d751e220fdd6094705ec4dbc0e4e76fce1ec0
   languageName: node
   linkType: hard
 

@@ -1,5 +1,5 @@
 import createDebug from 'debug';
-import type { BrowserContext } from 'patchright';
+import type { BrowserContext } from 'playwright-core';
 
 import type { CartaYouAccount } from '#app-cartayou/models/cartayou';
 import { AuthFailedError } from '#app-cartayou/utils/errors';
@@ -105,8 +105,8 @@ export async function performLogin(): Promise<CartaYouSession> {
   let context: BrowserContext | null = null;
 
   try {
-    // Launch a stealth-configured patchright context (persistent context +
-    // real Chrome + headful under Xvfb).
+    // Launch a stealth-configured Camoufox context (headful Firefox under a
+    // managed virtual display, with humanized cursor movement).
     context = await launchStealthContext({ locale: 'it-IT' });
 
     const page = context.pages()[0] ?? (await context.newPage());

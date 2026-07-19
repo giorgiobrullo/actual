@@ -2,51 +2,50 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { chromium } from 'patchright';
-import type { BrowserContext } from 'patchright';
+import { Camoufox } from 'camoufox-js';
+import type { BrowserContext } from 'playwright-core';
 
 /**
- * Launches a patchright browser context configured for maximum stealth,
- * following patchright's own recommendations for staying undetected:
+ * Launches a Camoufox (Firefox-based anti-detect browser) context configured
+ * for maximum stealth against aggressive bot detection (e.g. Amex Italy's
+ * invisible reCAPTCHA).
  *
- *  - `launchPersistentContext` (NOT `launch` + `newContext`): patchright only
- *    patches persistent contexts. A context from `browser.newContext()` is
- *    left unpatched and is trivially detectable.
- *  - `headless: false`: the headless shell advertises `HeadlessChrome` and is
- *    missing features real Chrome has. The server runs this under Xvfb so a
- *    headful browser works without a physical display.
- *  - `channel: 'chrome'`: real Google Chrome is less fingerprintable than the
- *    bundled open-source Chromium.
- *  - no fixed viewport (`viewport: null`): a hardcoded viewport is an
- *    automation tell; use the real window size instead.
+ * Why Camoufox over a patched Chromium (patchright): Camoufox spoofs its
+ * fingerprint at the browser-engine (C++) level rather than via JS runtime
+ * patches, and ships built-in cursor humanization — both of which matter for
+ * targets that score behaviour and low-level signals, not just the obvious
+ * `navigator.webdriver` tells.
+ *
+ *  - `user_data_dir`: makes Camoufox return a persistent BrowserContext (the
+ *    shape the scrapers expect: cookies(), newPage(), pages(), close()).
+ *  - `headless: 'virtual'`: runs a real headful browser inside a Camoufox-
+ *    managed Xvfb display, so the server needs no manual xvfb-run wrapper.
+ *  - `humanize: true`: human-like mouse movement between actions.
+ *  - `os: 'windows'`: presents the most common desktop OS fingerprint.
+ *  - `locale` / `timezone`: default to Italian, matching the banks and the
+ *    server's Italian residential IP so geo/locale signals stay consistent.
  *
  * The caller owns the returned context and must call `closeStealthContext`
  * (which also removes the throwaway user-data dir) when done.
  */
 export async function launchStealthContext(options?: {
   locale?: string;
+  timezone?: string;
   proxyServer?: string;
 }): Promise<BrowserContext> {
   const userDataDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'stealth-profile-'),
   );
 
-  const launchOptions: Parameters<typeof chromium.launchPersistentContext>[1] =
-    {
-      headless: false,
-      channel: 'chrome',
-      viewport: null,
-      locale: options?.locale,
-    };
-
-  if (options?.proxyServer) {
-    launchOptions.proxy = { server: options.proxyServer };
-  }
-
-  const context = await chromium.launchPersistentContext(
-    userDataDir,
-    launchOptions,
-  );
+  const context = await Camoufox({
+    user_data_dir: userDataDir,
+    headless: 'virtual',
+    humanize: true,
+    os: 'windows',
+    locale: options?.locale ?? 'it-IT',
+    timezone: options?.timezone ?? 'Europe/Rome',
+    proxy: options?.proxyServer,
+  });
 
   // Stash the temp dir on the context so closeStealthContext can clean it up
   // without the caller having to track it separately.

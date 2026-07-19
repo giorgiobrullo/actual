@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 import createDebug from 'debug';
-import type { Page } from 'patchright';
+import type { Page } from 'playwright-core';
 
 import { SecretName, secretsService } from './secrets-service';
 

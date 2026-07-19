@@ -117,17 +117,13 @@ export async function testProxy(
 ): Promise<{ success: boolean; ip?: string; message?: string }> {
   debug('Testing proxy: %s', proxyUrl);
 
-  const { chromium } = await import('patchright');
-  let browser = null;
+  const { closeStealthContext, launchStealthContext } =
+    await import('#services/stealth-browser');
+  let context = null;
 
   try {
-    browser = await chromium.launch({
-      headless: true,
-      proxy: { server: proxyUrl },
-    });
-
-    const context = await browser.newContext();
-    const page = await context.newPage();
+    context = await launchStealthContext({ proxyServer: proxyUrl });
+    const page = context.pages()[0] ?? (await context.newPage());
 
     // Fetch IP from httpbin (reliable, returns JSON)
     await page.goto('https://httpbin.org/ip', { timeout: 30000 });
@@ -146,8 +142,8 @@ export async function testProxy(
       message: error instanceof Error ? error.message : String(error),
     };
   } finally {
-    if (browser) {
-      await browser.close();
+    if (context) {
+      await closeStealthContext(context);
     }
   }
 }

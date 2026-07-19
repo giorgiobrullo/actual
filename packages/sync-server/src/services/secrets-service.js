@@ -31,6 +31,9 @@ export const SecretName = {
   cartayou_username: 'cartayou_username',
   cartayou_password: 'cartayou_password',
   cartayou_sms_secret: 'cartayou_sms_secret',
+  tfbank_username: 'tfbank_username',
+  tfbank_password: 'tfbank_password',
+  tfbank_sms_secret: 'tfbank_sms_secret',
 };
 
 function getSecretKey(name, fileId) {

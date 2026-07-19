@@ -81,6 +81,7 @@ import { SelectLinkedAccountsModal } from './modals/SelectLinkedAccountsModal';
 import { SimpleFinInitialiseModal } from './modals/SimpleFinInitialiseModal';
 import { StorageMigrationFailedModal } from './modals/StorageMigrationFailedModal';
 import { TagColorModal } from './modals/TagColorModal';
+import { TFBankSetupAccountModal } from './modals/TFBankSetupAccountModal';
 import { TrackingBalanceMenuModal } from './modals/TrackingBalanceMenuModal';
 import { TrackingBudgetMenuModal } from './modals/TrackingBudgetMenuModal';
 import { TrackingBudgetMonthMenuModal } from './modals/TrackingBudgetMonthMenuModal';
@@ -219,6 +220,9 @@ export function Modals() {
 
         case 'cartayou-setup-account':
           return <CartaYouSetupAccountModal key={key} {...modal.options} />;
+
+        case 'tfbank-setup-account':
+          return <TFBankSetupAccountModal key={key} {...modal.options} />;
 
         case 'enablebanking-external-msg':
           return <EnableBankingExternalMsgModal key={key} {...modal.options} />;

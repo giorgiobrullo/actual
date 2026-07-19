@@ -1,10 +1,13 @@
 import createDebug from 'debug';
-import { chromium } from 'patchright';
-import type { Browser, BrowserContext } from 'patchright';
+import type { BrowserContext } from 'patchright';
 
 import type { CartaYouAccount } from '#app-cartayou/models/cartayou';
 import { AuthFailedError } from '#app-cartayou/utils/errors';
 import { SecretName, secretsService } from '#services/secrets-service';
+import {
+  closeStealthContext,
+  launchStealthContext,
+} from '#services/stealth-browser';
 
 import * as smsOtpService from './sms-otp-service';
 
@@ -99,20 +102,14 @@ export async function performLogin(): Promise<CartaYouSession> {
 
   debug('Starting Carta You login flow...');
 
-  let browser: Browser | null = null;
+  let context: BrowserContext | null = null;
 
   try {
-    // Launch browser using patchright (undetected)
-    browser = await chromium.launch({
-      headless: true,
-    });
+    // Launch a stealth-configured patchright context (persistent context +
+    // real Chrome + headful under Xvfb).
+    context = await launchStealthContext({ locale: 'it-IT' });
 
-    const context = await browser.newContext({
-      viewport: { width: 1280, height: 720 },
-      locale: 'it-IT',
-    });
-
-    const page = await context.newPage();
+    const page = context.pages()[0] ?? (await context.newPage());
 
     // Set up response interception to capture account data
     const discoveredAccounts: CartaYouAccount[] = [];
@@ -495,8 +492,8 @@ export async function performLogin(): Promise<CartaYouSession> {
 
     return cachedSession;
   } finally {
-    if (browser) {
-      await browser.close();
+    if (context) {
+      await closeStealthContext(context);
     }
   }
 }

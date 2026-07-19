@@ -1,6 +1,5 @@
 import createDebug from 'debug';
-import { chromium } from 'patchright';
-import type { Browser, BrowserContext } from 'patchright';
+import type { BrowserContext } from 'patchright';
 
 import type { AmexAccount } from '#app-amex/models/amex';
 import { AuthFailedError } from '#app-amex/utils/errors';
@@ -11,6 +10,10 @@ import {
   solveRecaptcha,
 } from '#services/captcha-service';
 import { SecretName, secretsService } from '#services/secrets-service';
+import {
+  closeStealthContext,
+  launchStealthContext,
+} from '#services/stealth-browser';
 
 import { getProxy } from './amex-services';
 import { isImapConfigured, waitForAmexVerificationCode } from './imap-service';
@@ -94,15 +97,13 @@ export async function performLogin(): Promise<AmexSession> {
 
   debug('Starting Amex login flow...');
 
-  let browser: Browser | null = null;
+  let context: BrowserContext | null = null;
 
   try {
-    // Launch browser using patchright (undetected)
-    // Optionally use a proxy (e.g., socks5://10.0.0.1:1080 for WireGuard/Tailscale)
+    // Launch a stealth-configured patchright context (persistent context +
+    // real Chrome + headful under Xvfb). Optionally route through a proxy
+    // (e.g., socks5://10.0.0.1:1080 for WireGuard/Tailscale).
     const proxyUrl = getProxy();
-    const launchOptions: Parameters<typeof chromium.launch>[0] = {
-      headless: true,
-    };
 
     // Log configuration status
     debug(
@@ -114,19 +115,16 @@ export async function performLogin(): Promise<AmexSession> {
 
     if (proxyUrl) {
       debug('Launching browser with SOCKS proxy: %s', proxyUrl);
-      launchOptions.proxy = { server: proxyUrl };
     } else {
       debug('Launching browser without proxy (using direct connection)');
     }
 
-    browser = await chromium.launch(launchOptions);
-
-    const context = await browser.newContext({
-      viewport: { width: 1280, height: 720 },
+    context = await launchStealthContext({
       locale: 'it-IT',
+      proxyServer: proxyUrl || undefined,
     });
 
-    const page = await context.newPage();
+    const page = context.pages()[0] ?? (await context.newPage());
 
     // Check external IP to verify proxy is working
     try {
@@ -937,8 +935,8 @@ export async function performLogin(): Promise<AmexSession> {
 
     return cachedSession;
   } finally {
-    if (browser) {
-      await browser.close();
+    if (context) {
+      await closeStealthContext(context);
     }
   }
 }

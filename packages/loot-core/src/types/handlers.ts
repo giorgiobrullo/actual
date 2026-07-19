@@ -2,6 +2,7 @@ import type { AccountGroupsHandlers } from '#server/account-groups/app';
 import type { AmexHandlers } from '#server/accounts/amex';
 import type { AccountHandlers } from '#server/accounts/app';
 import type { CartaYouHandlers } from '#server/accounts/cartayou';
+import type { TFBankHandlers } from '#server/accounts/tfbank';
 import type { AdminHandlers } from '#server/admin/app';
 import type { AuthHandlers } from '#server/auth/app';
 import type { BudgetHandlers } from '#server/budget/app';
@@ -45,6 +46,7 @@ export type Handlers = {} & ServerHandlers &
   AccountGroupsHandlers &
   AmexHandlers &
   CartaYouHandlers &
+  TFBankHandlers &
   PayeesHandlers &
   SpreadsheetHandlers &
   SyncHandlers &

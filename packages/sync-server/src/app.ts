@@ -20,6 +20,7 @@ import * as pluggai from './app-pluggyai/app-pluggyai';
 import * as secretApp from './app-secrets';
 import * as simpleFinApp from './app-simplefin/app-simplefin';
 import * as syncApp from './app-sync';
+import * as tfbankApp from './app-tfbank/app-tfbank';
 import { config } from './load-config';
 
 const app = express();
@@ -66,6 +67,7 @@ app.use('/pluggyai', pluggai.handlers);
 app.use('/akahu', akahuApp.handlers);
 app.use('/amex', amexApp.handlers);
 app.use('/cartayou', cartayouApp.handlers);
+app.use('/tfbank', tfbankApp.handlers);
 app.use('/enablebanking', enableBankingApp.handlers);
 app.use('/secret', secretApp.handlers);
 

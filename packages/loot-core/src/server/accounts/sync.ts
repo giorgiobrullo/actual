@@ -38,6 +38,7 @@ import type {
 import { downloadAmexTransactions } from './amex';
 import { downloadCartaYouTransactions } from './cartayou';
 import { getStartingBalancePayee } from './payees';
+import { downloadTFBankTransactions } from './tfbank';
 import { title } from './title';
 
 function BankSyncError(type: string, code: string, details?: object) {
@@ -1250,6 +1251,8 @@ export async function syncAccount(
     download = await downloadAmexTransactions(acctId, syncStartDate);
   } else if (acctRow.account_sync_source === 'cartayou') {
     download = await downloadCartaYouTransactions(acctId, syncStartDate);
+  } else if (acctRow.account_sync_source === 'tfbank') {
+    download = await downloadTFBankTransactions(acctId, syncStartDate);
   } else if (acctRow.account_sync_source === 'goCardless') {
     download = await downloadGoCardlessTransactions(
       userId,

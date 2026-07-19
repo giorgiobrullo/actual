@@ -1,12 +1,13 @@
 import { SecretName } from '#services/secrets-service';
 import { createSmsOtpService } from '#services/sms-otp-service';
 
-// Carta You's SMS-OTP handling is the shared service bound to Carta You's
-// secret and debug namespace. Re-exported member-by-member so existing
-// imports (`import * as smsOtpService from './sms-otp-service'`) keep working.
+// TF Bank's SMS-OTP handling is the shared service bound to TF Bank's secret
+// and debug namespace. Re-exported member-by-member so existing imports
+// (`import * as smsOtpService from './sms-otp-service'`) keep working, and so
+// TF Bank's OTP store stays isolated from Carta You's.
 const service = createSmsOtpService({
-  secretName: SecretName.cartayou_sms_secret,
-  debugNamespace: 'actual:cartayou:sms-otp',
+  secretName: SecretName.tfbank_sms_secret,
+  debugNamespace: 'actual:tfbank:sms-otp',
 });
 
 export const generateSecret = service.generateSecret;

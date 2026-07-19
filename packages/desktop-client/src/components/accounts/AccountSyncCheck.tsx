@@ -21,6 +21,7 @@ import { useCurrentAccess } from '#hooks/useCurrentAccess';
 import { useFailedAccounts } from '#hooks/useFailedAccounts';
 import { pushModal } from '#modals/modalsSlice';
 import { useDispatch } from '#redux';
+import { authorizeTFBank } from '#tfbank';
 
 function useErrorMessage() {
   const { t } = useTranslation();
@@ -108,6 +109,11 @@ function useErrorMessage() {
           'Carta You is not configured. Please set up your credentials in the Carta You setup modal.',
         );
 
+      case 'TFBANK_NOT_CONFIGURED':
+        return t(
+          'TF Bank is not configured. Please set up your credentials in the TF Bank setup modal.',
+        );
+
       case 'AUTH_FAILED':
         return t(
           'Authentication failed. Please check your credentials and try again.',
@@ -162,6 +168,8 @@ export function AccountSyncCheck() {
           authorizeAmex(dispatch, acc.id);
         } else if (acc.account_sync_source === 'cartayou') {
           authorizeCartaYou(dispatch, acc.id);
+        } else if (acc.account_sync_source === 'tfbank') {
+          authorizeTFBank(dispatch, acc.id);
         }
       }
     },

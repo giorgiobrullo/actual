@@ -12,6 +12,8 @@ import {
 
 const debug = createDebug('actual:tfbank:services');
 
+const CARD_BASE = 'https://cardmanagement.production.avarda.com';
+
 export function isConfigured(): boolean {
   const username = secretsService.get(SecretName.tfbank_username);
   const password = secretsService.get(SecretName.tfbank_password);
@@ -42,18 +44,6 @@ export function getStatus(): {
   };
 }
 
-/** Coerce an API payload that may be an array or a wrapped list into an array. */
-function toArray(payload: unknown, ...keys: string[]): unknown[] {
-  if (Array.isArray(payload)) return payload;
-  if (payload && typeof payload === 'object') {
-    for (const key of keys) {
-      const value = (payload as Record<string, unknown>)[key];
-      if (Array.isArray(value)) return value;
-    }
-  }
-  return [];
-}
-
 function num(value: unknown): number | undefined {
   const n = typeof value === 'string' ? Number(value) : value;
   return typeof n === 'number' && Number.isFinite(n) ? n : undefined;
@@ -68,17 +58,14 @@ function firstString(rec: Record<string, unknown>, keys: string[]): string {
 }
 
 /**
- * Normalize an Avarda transaction into Actual's shape.
+ * Normalize an Avarda card transaction into Actual's shape.
  *
- * Amount is kept in decimal form; sync.ts converts it to cents. The exact field
- * names and the amount-sign convention are confirmed on the first real sync
- * (task #20) — this reads the common Avarda names defensively and logs the raw
- * record so the shape can be locked in.
+ * Amount is kept in decimal form; sync.ts converts it to cents. Credit-card
+ * convention: purchases are money out (negative), payments/refunds are money in
+ * (positive). The exact field names / sign are finalized against the live
+ * SAMPLE captured during login (see tfbank-auth) then folded into the client.
  */
-function normalizeTransaction(
-  raw: unknown,
-  source: 'transaction' | 'invoice',
-): Transaction | null {
+function normalizeTransaction(raw: unknown): Transaction | null {
   if (!raw || typeof raw !== 'object') return null;
   const rec = raw as Record<string, unknown>;
 
@@ -87,46 +74,38 @@ function normalizeTransaction(
     'bookingDate',
     'date',
     'valueDate',
-    'invoiceDate',
-    'dueDate',
+    'purchaseDate',
   ]);
   if (!rawDate) {
-    debug('Skipping %s with no date: %O', source, rec);
+    debug('skip txn (no date): %s', JSON.stringify(rec).slice(0, 200));
     return null;
   }
   const date = rawDate.split('T')[0];
 
-  const amount = num(rec.amount ?? rec.transactionAmount ?? rec.totalAmount);
+  const amount = num(rec.amount ?? rec.transactionAmount ?? rec.billingAmount);
   if (amount === undefined) {
-    debug('Skipping %s with no amount: %O', source, rec);
+    debug('skip txn (no amount): %s', JSON.stringify(rec).slice(0, 200));
     return null;
   }
 
-  const transactionId = firstString(rec, [
-    'transactionId',
-    'id',
-    'reference',
-    'uniqueReference',
-    'invoiceId',
-    'invoiceNumber',
-  ]);
+  const transactionId =
+    firstString(rec, [
+      'transactionId',
+      'id',
+      'reference',
+      'transactionReference',
+    ]) || `${date}-${amount}`;
 
   const payeeName =
-    firstString(rec, [
-      'merchantName',
-      'description',
-      'text',
-      'merchant',
-      'title',
-    ]) || (source === 'invoice' ? 'TF Bank Invoice' : 'TF Bank');
+    firstString(rec, ['merchantName', 'description', 'text', 'merchant']) ||
+    'TF Bank';
 
   const noteParts: string[] = [];
-  const detail = firstString(rec, ['additionalInfo', 'note', 'details']);
-  if (detail && detail !== payeeName) noteParts.push(detail);
-  if (source === 'invoice') noteParts.push('Invoice');
+  const category = firstString(rec, ['merchantCategory', 'category']);
+  if (category) noteParts.push(category);
 
   return {
-    transactionId: transactionId || `${source}-${date}-${amount}`,
+    transactionId,
     amount,
     payeeName,
     notes: noteParts.join(' | '),
@@ -135,13 +114,25 @@ function normalizeTransaction(
   };
 }
 
+/** Coerce a transactions payload (array or wrapped) into an array. */
+function toArray(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) return payload;
+  if (payload && typeof payload === 'object') {
+    for (const key of ['transactions', 'items', 'data', 'results']) {
+      const value = (payload as Record<string, unknown>)[key];
+      if (Array.isArray(value)) return value;
+    }
+  }
+  return [];
+}
+
 /**
- * Fetch all TF Bank activity for an account: recent card transactions plus the
- * invoice (fattura) history, normalized, de-duplicated and sorted newest-first.
+ * Fetch card transactions for an account. `accountId` is the cornicheAccountId
+ * stored at link time; the endpoint requires a from/to date window.
  */
 export async function getTransactions(
   accountId: string,
-  _startDate?: string,
+  startDate?: string,
   _endDate?: string,
 ): Promise<Transaction[]> {
   if (!isConfigured()) {
@@ -149,47 +140,41 @@ export async function getTransactions(
   }
 
   const client = await getAuthenticatedClient();
+  const token = client.accessToken ?? '';
 
-  const results: Transaction[] = [];
+  const to = new Date().toISOString().slice(0, 10);
+  const from = startDate
+    ? startDate.slice(0, 10)
+    : new Date(Date.now() - 730 * 86_400_000).toISOString().slice(0, 10);
 
-  try {
-    const txnPayload = await client.getTransactions(accountId);
-    for (const raw of toArray(txnPayload, 'transactions', 'items', 'data')) {
-      const tx = normalizeTransaction(raw, 'transaction');
-      if (tx) results.push(tx);
-    }
-    debug('Fetched %d transaction(s)', results.length);
-  } catch (error) {
-    debug('Failed fetching transactions: %s', error);
-  }
+  const url =
+    `${CARD_BASE}/api/v3/transactions/${encodeURIComponent(accountId)}` +
+    `?transactionDateFrom=${from}&transactionDateTo=${to}&locale=it-IT`;
 
-  try {
-    const invoicePayload = await client.getInvoices();
-    let invoiceCount = 0;
-    for (const raw of toArray(invoicePayload, 'invoices', 'items', 'data')) {
-      const tx = normalizeTransaction(raw, 'invoice');
-      if (tx) {
-        results.push(tx);
-        invoiceCount++;
-      }
-    }
-    debug('Fetched %d invoice(s)', invoiceCount);
-  } catch (error) {
-    debug('Failed fetching invoices: %s', error);
-  }
-
-  // Deduplicate by transactionId (invoices and transactions may overlap).
-  const seen = new Set<string>();
-  const unique = results.filter(tx => {
-    if (seen.has(tx.transactionId)) return false;
-    seen.add(tx.transactionId);
-    return true;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      Origin: 'https://areacliente.tfbank.it',
+      Referer: 'https://areacliente.tfbank.it/',
+    },
   });
 
-  unique.sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    debug('transactions %d -> %s', res.status, body.slice(0, 300));
+    throw new Error(`TF Bank transactions request failed: ${res.status}`);
+  }
 
-  debug('Returning %d unique transaction(s)', unique.length);
-  return unique;
+  const payload = await res.json();
+  const raw = toArray(payload);
+  debug('fetched %d raw transaction(s) for %s', raw.length, from);
+
+  const transactions = raw
+    .map(normalizeTransaction)
+    .filter((t): t is Transaction => t !== null)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  debug('returning %d transaction(s)', transactions.length);
+  return transactions;
 }

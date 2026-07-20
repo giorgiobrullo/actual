@@ -55,56 +55,38 @@ function num(value: unknown): number | undefined {
 }
 
 /**
- * Normalize the GetCreditLimits payload into TFBankAccount[].
+ * Build the single TF Bank account from the GetCreditLimits summary.
  *
- * The exact response shape is confirmed on the first real sync (see the
- * TF Bank integration notes / task #20); until then this reads the fields
- * defensively under the common Avarda names and logs the raw payload so the
- * shape can be locked in.
+ * TF Bank exposes one card per login and GetCreditLimits carries no account id
+ * (confirmed live: { loanLimit, usedBalance, availableBalance, reservedAmount,
+ * openingBalance, repaymentDetails, currencyCode }), so the id is supplied by
+ * the caller — derived from the JWT / a working transactions probe.
  */
-export function normalizeAccounts(raw: unknown): TFBankAccount[] {
-  debug('GetCreditLimits raw payload: %O', raw);
-
-  const candidates: unknown[] = Array.isArray(raw)
-    ? raw
-    : raw && typeof raw === 'object'
-      ? ((raw as Record<string, unknown>).accounts as unknown[]) ||
-        ((raw as Record<string, unknown>).creditLimits as unknown[]) ||
-        ((raw as Record<string, unknown>).items as unknown[]) || [raw]
-      : [];
-
-  const accounts: TFBankAccount[] = [];
-  for (const item of candidates) {
-    if (!item || typeof item !== 'object') continue;
-    const rec = item as Record<string, unknown>;
-
-    const accountId = String(
-      rec.accountId ?? rec.accountNumber ?? rec.id ?? rec.customerId ?? '',
-    );
-    if (!accountId) continue;
-
-    accounts.push({
-      account_id: accountId,
-      name: String(rec.productName ?? rec.name ?? rec.cardName ?? 'TF Bank'),
-      display_number: last4(
-        rec.maskedCardNumber ?? rec.cardNumber ?? accountId,
-      ),
-      balance: num(rec.balance ?? rec.currentBalance ?? rec.usedAmount),
-      credit_limit: num(rec.creditLimit ?? rec.limit ?? rec.totalLimit),
-      available_credit: num(
-        rec.availableCredit ?? rec.available ?? rec.disposable,
-      ),
-    });
-  }
-
-  debug('Normalized %d TF Bank account(s)', accounts.length);
-  return accounts;
+export function buildAccountFromLimits(
+  raw: unknown,
+  accountId: string,
+): TFBankAccount {
+  const rec = (raw && typeof raw === 'object' ? raw : {}) as Record<
+    string,
+    unknown
+  >;
+  return {
+    account_id: accountId,
+    name: 'TF Bank',
+    display_number: last4(accountId),
+    balance: num(rec.usedBalance ?? rec.openingBalance ?? rec.balance),
+    credit_limit: num(rec.loanLimit ?? rec.creditLimit ?? rec.limit),
+    available_credit: num(rec.availableBalance ?? rec.availableCredit),
+  };
 }
 
 /**
  * Perform the full TF Bank login: password + SMS OTP via the Avarda client,
- * then discover accounts from GetCreditLimits. Caches the authenticated client
- * for reuse by the transactions endpoint within the token's lifetime.
+ * then discover the account. Because GetCreditLimits has no account id, this
+ * probes the JWT claims / client details / candidate ids against the
+ * transactions endpoint to find the identifier it wants, logging raw shapes so
+ * the transaction/invoice normalization can be finalized. Caches the
+ * authenticated client for reuse within the token's lifetime.
  */
 export async function performLogin(): Promise<TFBankSession> {
   const email = secretsService.get(SecretName.tfbank_username);
@@ -148,12 +130,82 @@ export async function performLogin(): Promise<TFBankSession> {
     smsOtpService.clearOTP();
   }
 
-  // Discover accounts.
+  // Discover the account and capture the transactions identifier + raw shapes.
   let accounts: TFBankAccount[] = [];
   try {
-    accounts = normalizeAccounts(await client.getCreditLimits());
+    const claims = client.getSession()?.claims ?? {};
+    debug('JWT claims: %s', JSON.stringify(claims));
+
+    let clientDetails: Record<string, unknown> = {};
+    try {
+      clientDetails = ((await client.getClientDetails()) ?? {}) as Record<
+        string,
+        unknown
+      >;
+      debug('client details: %s', JSON.stringify(clientDetails));
+    } catch (e) {
+      debug('getClientDetails failed: %s', e instanceof Error ? e.message : e);
+    }
+
+    const limits = await client.getCreditLimits();
+    debug('GetCreditLimits raw payload: %s', JSON.stringify(limits));
+
+    // Candidate identifiers for /api/v3/transactions/{accountId}.
+    const candidateIds = [
+      clientDetails.accountNumber,
+      clientDetails.accountId,
+      clientDetails.customerId,
+      claims.accountNumber,
+      claims.accountId,
+      claims.branchid,
+      claims.customerId,
+      claims.sub,
+      claims.ssn,
+    ]
+      .filter(v => v != null && v !== '')
+      .map(String);
+
+    let workingId: string | null = null;
+    for (const cand of candidateIds) {
+      try {
+        const txns = await client.getTransactions(cand);
+        debug(
+          'transactions OK with id=%s: %s',
+          cand,
+          JSON.stringify(txns).slice(0, 3000),
+        );
+        workingId = cand;
+        break;
+      } catch (e) {
+        debug(
+          'transactions FAILED id=%s: %s',
+          cand,
+          e instanceof Error ? e.message : e,
+        );
+      }
+    }
+
+    try {
+      const invoices = await client.getInvoices();
+      debug(
+        'invoices raw payload: %s',
+        JSON.stringify(invoices).slice(0, 3000),
+      );
+    } catch (e) {
+      debug('getInvoices failed: %s', e instanceof Error ? e.message : e);
+    }
+
+    const accountId =
+      workingId ??
+      String(claims.sub ?? clientDetails.accountNumber ?? 'tfbank');
+    accounts = [buildAccountFromLimits(limits, accountId)];
+    debug(
+      'Using accountId=%s (transactions probe %s)',
+      accountId,
+      workingId ? 'succeeded' : 'fell back — check logs for the real id',
+    );
   } catch (error) {
-    debug('Failed discovering accounts from GetCreditLimits: %s', error);
+    debug('Failed discovering account: %s', error);
   }
 
   const now = Date.now();

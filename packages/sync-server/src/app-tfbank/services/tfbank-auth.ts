@@ -9,6 +9,9 @@ import * as smsOtpService from './sms-otp-service';
 
 const debug = createDebug('actual:tfbank:auth');
 
+const CARD_BASE = 'https://cardmanagement.production.avarda.com';
+const MY_BASE = 'https://mypages-api.production.avarda.com';
+
 // A live session wraps the authenticated Avarda client plus the accounts we
 // discovered during login. The access token is short-lived (~5 min), so the
 // session TTL is derived from the token's own expiry.
@@ -60,7 +63,7 @@ function num(value: unknown): number | undefined {
  * TF Bank exposes one card per login and GetCreditLimits carries no account id
  * (confirmed live: { loanLimit, usedBalance, availableBalance, reservedAmount,
  * openingBalance, repaymentDetails, currencyCode }), so the id is supplied by
- * the caller — derived from the JWT / a working transactions probe.
+ * the caller — derived from a working transactions probe / the JWT.
  */
 export function buildAccountFromLimits(
   raw: unknown,
@@ -80,13 +83,44 @@ export function buildAccountFromLimits(
   };
 }
 
+/** Recursively collect id-like string/number values from a parsed payload. */
+function collectIds(value: unknown, out: Set<string>, depth = 0): void {
+  if (depth > 5 || value == null) return;
+  if (Array.isArray(value)) {
+    for (const item of value) collectIds(item, out, depth + 1);
+    return;
+  }
+  if (typeof value === 'object') {
+    for (const [key, v] of Object.entries(value)) {
+      if (
+        /(^id$|Id$|number$|Number$|guid|reference)/i.test(key) &&
+        (typeof v === 'string' || typeof v === 'number') &&
+        String(v).length > 0
+      ) {
+        out.add(String(v));
+      }
+      collectIds(v, out, depth + 1);
+    }
+  }
+}
+
+async function rawGet(
+  url: string,
+  headers: Record<string, string>,
+): Promise<{ status: number; body: string }> {
+  const res = await fetch(url, { headers });
+  return { status: res.status, body: await res.text() };
+}
+
 /**
- * Perform the full TF Bank login: password + SMS OTP via the Avarda client,
- * then discover the account. Because GetCreditLimits has no account id, this
- * probes the JWT claims / client details / candidate ids against the
- * transactions endpoint to find the identifier it wants, logging raw shapes so
- * the transaction/invoice normalization can be finalized. Caches the
- * authenticated client for reuse within the token's lifetime.
+ * Perform the full TF Bank login and hunt for the transactions endpoint.
+ *
+ * GetCreditLimits has no account id and /api/v3/transactions/{branchid|email|
+ * ssn} all return 400, so this probes the card/overview/accounts endpoints,
+ * harvests any id-like fields from their responses, and retries the
+ * transactions endpoint with each — all within the login's token lifetime.
+ * Everything is logged (incl. the access token as a manual-exploration backup)
+ * so the endpoint + shapes can be finalized. Caches the authenticated client.
  */
 export async function performLogin(): Promise<TFBankSession> {
   const email = secretsService.get(SecretName.tfbank_username);
@@ -130,11 +164,21 @@ export async function performLogin(): Promise<TFBankSession> {
     smsOtpService.clearOTP();
   }
 
-  // Discover the account and capture the transactions identifier + raw shapes.
   let accounts: TFBankAccount[] = [];
   try {
-    const claims = client.getSession()?.claims ?? {};
+    const session = client.getSession();
+    const claims = session?.claims ?? {};
+    const token = session?.accessToken ?? '';
     debug('JWT claims: %s', JSON.stringify(claims));
+    debug('ACCESS_TOKEN %s', token);
+
+    const H: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Origin: 'https://areacliente.tfbank.it',
+      Referer: 'https://areacliente.tfbank.it/',
+    };
 
     let clientDetails: Record<string, unknown> = {};
     try {
@@ -150,59 +194,83 @@ export async function performLogin(): Promise<TFBankSession> {
     const limits = await client.getCreditLimits();
     debug('GetCreditLimits raw payload: %s', JSON.stringify(limits));
 
-    // Candidate identifiers for /api/v3/transactions/{accountId}.
-    const candidateIds = [
-      clientDetails.accountNumber,
-      clientDetails.accountId,
-      clientDetails.customerId,
-      claims.accountNumber,
-      claims.accountId,
-      claims.branchid,
-      claims.customerId,
-      claims.sub,
-      claims.ssn,
-    ]
-      .filter(v => v != null && v !== '')
-      .map(String);
+    let invoiceId: string | undefined;
+    try {
+      const invoices = await client.getInvoices();
+      debug(
+        'invoices raw payload: %s',
+        JSON.stringify(invoices).slice(0, 2000),
+      );
+      const first = (invoices as { invoices?: Array<{ invoiceId?: unknown }> })
+        ?.invoices?.[0]?.invoiceId;
+      if (first != null) invoiceId = String(first);
+    } catch (e) {
+      debug('getInvoices failed: %s', e instanceof Error ? e.message : e);
+    }
 
-    let workingId: string | null = null;
-    for (const cand of candidateIds) {
+    // Step 1: probe list/overview endpoints and harvest id-like values.
+    const branch = String(claims.branchid ?? '');
+    const foundIds = new Set<string>();
+    if (branch) foundIds.add(branch);
+    const probeUrls = [
+      `${CARD_BASE}/api/v3/CreditCard/overview`,
+      `${CARD_BASE}/api/v3/CreditCard/overview/${branch}`,
+      `${CARD_BASE}/api/v1/CreditCard`,
+      `${CARD_BASE}/api/v1/cards`,
+      `${CARD_BASE}/api/v3/cards`,
+      `${CARD_BASE}/api/v1/accounts`,
+      `${CARD_BASE}/api/v3/transactions`,
+      invoiceId ? `${CARD_BASE}/api/v1/invoices/${invoiceId}` : '',
+      `${MY_BASE}/api/accounts`,
+      `${MY_BASE}/api/cards`,
+    ].filter(Boolean);
+
+    for (const url of probeUrls) {
       try {
-        const txns = await client.getTransactions(cand);
-        debug(
-          'transactions OK with id=%s: %s',
-          cand,
-          JSON.stringify(txns).slice(0, 3000),
+        const { status, body } = await rawGet(url, H);
+        debug('PROBE %d %s -> %s', status, url, body.slice(0, 500));
+        if (status >= 200 && status < 300) {
+          try {
+            collectIds(JSON.parse(body), foundIds);
+          } catch {
+            /* non-JSON body */
+          }
+        }
+      } catch (e) {
+        debug('PROBE ERR %s -> %s', url, e instanceof Error ? e.message : e);
+      }
+    }
+
+    // Step 2: try the transactions endpoint with every harvested id.
+    let workingId: string | null = null;
+    for (const id of foundIds) {
+      try {
+        const { status, body } = await rawGet(
+          `${CARD_BASE}/api/v3/transactions/${encodeURIComponent(id)}`,
+          H,
         );
-        workingId = cand;
-        break;
+        debug('TXN-TRY %d id=%s -> %s', status, id, body.slice(0, 600));
+        if (status >= 200 && status < 300) {
+          workingId = id;
+          break;
+        }
       } catch (e) {
         debug(
-          'transactions FAILED id=%s: %s',
-          cand,
+          'TXN-TRY ERR id=%s -> %s',
+          id,
           e instanceof Error ? e.message : e,
         );
       }
     }
 
-    try {
-      const invoices = await client.getInvoices();
-      debug(
-        'invoices raw payload: %s',
-        JSON.stringify(invoices).slice(0, 3000),
-      );
-    } catch (e) {
-      debug('getInvoices failed: %s', e instanceof Error ? e.message : e);
-    }
-
-    const accountId =
-      workingId ??
-      String(claims.sub ?? clientDetails.accountNumber ?? 'tfbank');
+    const accountId = workingId ?? String(claims.sub ?? 'tfbank');
     accounts = [buildAccountFromLimits(limits, accountId)];
     debug(
-      'Using accountId=%s (transactions probe %s)',
+      'Built 1 account id=%s (transactions %s) — %d harvested ids: %s',
       accountId,
-      workingId ? 'succeeded' : 'fell back — check logs for the real id',
+      workingId ? 'RESOLVED' : 'still unresolved, see PROBE/TXN-TRY lines',
+      foundIds.size,
+      [...foundIds].join(','),
     );
   } catch (error) {
     debug('Failed discovering account: %s', error);

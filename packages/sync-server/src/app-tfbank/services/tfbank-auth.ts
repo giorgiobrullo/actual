@@ -45,63 +45,31 @@ export function getCachedAccounts(): TFBankAccount[] {
   return getCachedSession()?.accounts ?? cachedSession?.accounts ?? [];
 }
 
-/** Extract a usable last-4 from an account identifier or card number. */
-function last4(value: unknown): string {
-  const str = String(value ?? '');
-  const digits = str.replace(/\D/g, '');
-  return digits.length >= 4 ? digits.slice(-4) : str.slice(-4);
-}
-
 function num(value: unknown): number | undefined {
   const n = typeof value === 'string' ? Number(value) : value;
   return typeof n === 'number' && Number.isFinite(n) ? n : undefined;
 }
 
-/**
- * Build the single TF Bank account from the GetCreditLimits summary.
- *
- * TF Bank exposes one card per login and GetCreditLimits carries no account id
- * (confirmed live: { loanLimit, usedBalance, availableBalance, reservedAmount,
- * openingBalance, repaymentDetails, currencyCode }), so the id is supplied by
- * the caller — derived from a working transactions probe / the JWT.
- */
-export function buildAccountFromLimits(
-  raw: unknown,
-  accountId: string,
-): TFBankAccount {
-  const rec = (raw && typeof raw === 'object' ? raw : {}) as Record<
-    string,
-    unknown
-  >;
-  return {
-    account_id: accountId,
-    name: 'TF Bank',
-    display_number: last4(accountId),
-    balance: num(rec.usedBalance ?? rec.openingBalance ?? rec.balance),
-    credit_limit: num(rec.loanLimit ?? rec.creditLimit ?? rec.limit),
-    available_credit: num(rec.availableBalance ?? rec.availableCredit),
-  };
-}
-
-/** Recursively collect id-like string/number values from a parsed payload. */
-function collectIds(value: unknown, out: Set<string>, depth = 0): void {
-  if (depth > 5 || value == null) return;
+/** Recursively find the first string/number value for `key` in a payload. */
+function deepFind(value: unknown, key: string, depth = 0): string | undefined {
+  if (depth > 6 || value == null || typeof value !== 'object') return undefined;
   if (Array.isArray(value)) {
-    for (const item of value) collectIds(item, out, depth + 1);
-    return;
-  }
-  if (typeof value === 'object') {
-    for (const [key, v] of Object.entries(value)) {
-      if (
-        /(^id$|Id$|number$|Number$|guid|reference)/i.test(key) &&
-        (typeof v === 'string' || typeof v === 'number') &&
-        String(v).length > 0
-      ) {
-        out.add(String(v));
-      }
-      collectIds(v, out, depth + 1);
+    for (const item of value) {
+      const found = deepFind(item, key, depth + 1);
+      if (found) return found;
     }
+    return undefined;
   }
+  const rec = value as Record<string, unknown>;
+  const direct = rec[key];
+  if (typeof direct === 'string' || typeof direct === 'number') {
+    return String(direct);
+  }
+  for (const v of Object.values(rec)) {
+    const found = deepFind(v, key, depth + 1);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 async function rawGet(
@@ -113,14 +81,43 @@ async function rawGet(
 }
 
 /**
- * Perform the full TF Bank login and hunt for the transactions endpoint.
+ * Build the TF Bank account. `cornicheAccountId` (a GUID from
+ * /api/card/details) is the account id used by /api/v3/transactions/{id}; it is
+ * stored as `account_id` so bank-sync passes it straight through. Balance,
+ * limit and available credit come from GetCreditLimits.
+ */
+export function buildAccount(
+  cornicheAccountId: string,
+  limits: unknown,
+  cardDetails: unknown,
+): TFBankAccount {
+  const lim = (limits && typeof limits === 'object' ? limits : {}) as Record<
+    string,
+    unknown
+  >;
+  const maskedPan = deepFind(cardDetails, 'maskedCardNumber') ?? '';
+  const last4 = maskedPan.replace(/\D/g, '').slice(-4) || '0000';
+  return {
+    account_id: cornicheAccountId,
+    name: 'TF Bank',
+    display_number: last4,
+    balance: num(lim.usedBalance ?? lim.openingBalance),
+    credit_limit: num(lim.loanLimit),
+    available_credit: num(lim.availableBalance),
+  };
+}
+
+/**
+ * Perform the full TF Bank login and discover the account.
  *
- * GetCreditLimits has no account id and /api/v3/transactions/{branchid|email|
- * ssn} all return 400, so this probes the card/overview/accounts endpoints,
- * harvests any id-like fields from their responses, and retries the
- * transactions endpoint with each — all within the login's token lifetime.
- * Everything is logged (incl. the access token as a manual-exploration backup)
- * so the endpoint + shapes can be finalized. Caches the authenticated client.
+ * Contract (from the card-management module bundle):
+ *   GET /api/card/details            -> { cornicheAccountId, cornicheCardPan, ... }
+ *   GET /api/v3/transactions/{cornicheAccountId}?transactionDateFrom&transactionDateTo&locale
+ *   GET /api/v3/CreditCard/overview/{cornicheCardPan}?numberOfTransactions=N
+ * card/details 404s on the card-management host, so it's fetched from the
+ * mypages host (where /api/client/details lives), with the card host as a
+ * fallback. Logs the card/details payload + a transactions sample so the shapes
+ * can be finalized, then folded into the avarda-mypages client.
  */
 export async function performLogin(): Promise<TFBankSession> {
   const email = secretsService.get(SecretName.tfbank_username);
@@ -166,12 +163,7 @@ export async function performLogin(): Promise<TFBankSession> {
 
   let accounts: TFBankAccount[] = [];
   try {
-    const session = client.getSession();
-    const claims = session?.claims ?? {};
-    const token = session?.accessToken ?? '';
-    debug('JWT claims: %s', JSON.stringify(claims));
-    debug('ACCESS_TOKEN %s', token);
-
+    const token = client.getSession()?.accessToken ?? '';
     const H: Record<string, string> = {
       Authorization: `Bearer ${token}`,
       Accept: 'application/json',
@@ -180,97 +172,61 @@ export async function performLogin(): Promise<TFBankSession> {
       Referer: 'https://areacliente.tfbank.it/',
     };
 
-    let clientDetails: Record<string, unknown> = {};
-    try {
-      clientDetails = ((await client.getClientDetails()) ?? {}) as Record<
-        string,
-        unknown
-      >;
-      debug('client details: %s', JSON.stringify(clientDetails));
-    } catch (e) {
-      debug('getClientDetails failed: %s', e instanceof Error ? e.message : e);
-    }
-
-    const limits = await client.getCreditLimits();
-    debug('GetCreditLimits raw payload: %s', JSON.stringify(limits));
-
-    let invoiceId: string | undefined;
-    try {
-      const invoices = await client.getInvoices();
-      debug(
-        'invoices raw payload: %s',
-        JSON.stringify(invoices).slice(0, 2000),
-      );
-      const first = (invoices as { invoices?: Array<{ invoiceId?: unknown }> })
-        ?.invoices?.[0]?.invoiceId;
-      if (first != null) invoiceId = String(first);
-    } catch (e) {
-      debug('getInvoices failed: %s', e instanceof Error ? e.message : e);
-    }
-
-    // Step 1: probe list/overview endpoints and harvest id-like values.
-    const branch = String(claims.branchid ?? '');
-    const foundIds = new Set<string>();
-    if (branch) foundIds.add(branch);
-    const probeUrls = [
-      `${CARD_BASE}/api/v3/CreditCard/overview`,
-      `${CARD_BASE}/api/v3/CreditCard/overview/${branch}`,
-      `${CARD_BASE}/api/v1/CreditCard`,
-      `${CARD_BASE}/api/v1/cards`,
-      `${CARD_BASE}/api/v3/cards`,
-      `${CARD_BASE}/api/v1/accounts`,
-      `${CARD_BASE}/api/v3/transactions`,
-      invoiceId ? `${CARD_BASE}/api/v1/invoices/${invoiceId}` : '',
-      `${MY_BASE}/api/accounts`,
-      `${MY_BASE}/api/cards`,
-    ].filter(Boolean);
-
-    for (const url of probeUrls) {
+    // card/details -> corniche GUIDs (try mypages host first, then card host).
+    let cardDetails: unknown = null;
+    for (const base of [MY_BASE, CARD_BASE]) {
       try {
-        const { status, body } = await rawGet(url, H);
-        debug('PROBE %d %s -> %s', status, url, body.slice(0, 500));
-        if (status >= 200 && status < 300) {
-          try {
-            collectIds(JSON.parse(body), foundIds);
-          } catch {
-            /* non-JSON body */
-          }
-        }
-      } catch (e) {
-        debug('PROBE ERR %s -> %s', url, e instanceof Error ? e.message : e);
-      }
-    }
-
-    // Step 2: try the transactions endpoint with every harvested id.
-    let workingId: string | null = null;
-    for (const id of foundIds) {
-      try {
-        const { status, body } = await rawGet(
-          `${CARD_BASE}/api/v3/transactions/${encodeURIComponent(id)}`,
-          H,
-        );
-        debug('TXN-TRY %d id=%s -> %s', status, id, body.slice(0, 600));
-        if (status >= 200 && status < 300) {
-          workingId = id;
+        const { status, body } = await rawGet(`${base}/api/card/details`, H);
+        debug('card/details [%s] %d -> %s', base, status, body.slice(0, 900));
+        if (status >= 200 && status < 300 && body) {
+          cardDetails = JSON.parse(body);
           break;
         }
       } catch (e) {
         debug(
-          'TXN-TRY ERR id=%s -> %s',
-          id,
+          'card/details [%s] err %s',
+          base,
           e instanceof Error ? e.message : e,
         );
       }
     }
 
-    const accountId = workingId ?? String(claims.sub ?? 'tfbank');
-    accounts = [buildAccountFromLimits(limits, accountId)];
+    const cornicheAccountId = deepFind(cardDetails, 'cornicheAccountId');
+    const cornicheCardPan = deepFind(cardDetails, 'cornicheCardPan');
     debug(
-      'Built 1 account id=%s (transactions %s) — %d harvested ids: %s',
+      'cornicheAccountId=%s cornicheCardPan=%s',
+      cornicheAccountId,
+      cornicheCardPan,
+    );
+
+    const limits = await client.getCreditLimits();
+    debug('GetCreditLimits raw payload: %s', JSON.stringify(limits));
+
+    // Sample transactions to lock in the shape (2-year window).
+    if (cornicheAccountId) {
+      const to = new Date().toISOString().slice(0, 10);
+      const from = new Date(Date.now() - 730 * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      try {
+        const { status, body } = await rawGet(
+          `${CARD_BASE}/api/v3/transactions/${cornicheAccountId}?transactionDateFrom=${from}&transactionDateTo=${to}&locale=it-IT`,
+          H,
+        );
+        debug('SAMPLE transactions %d -> %s', status, body.slice(0, 1800));
+      } catch (e) {
+        debug('SAMPLE transactions err %s', e instanceof Error ? e.message : e);
+      }
+    }
+
+    const accountId = cornicheAccountId ?? email;
+    accounts = [buildAccount(accountId, limits, cardDetails)];
+    debug(
+      'Built account id=%s (%s)',
       accountId,
-      workingId ? 'RESOLVED' : 'still unresolved, see PROBE/TXN-TRY lines',
-      foundIds.size,
-      [...foundIds].join(','),
+      cornicheAccountId
+        ? 'RESOLVED from card/details'
+        : 'FALLBACK — card/details did not yield a GUID',
     );
   } catch (error) {
     debug('Failed discovering account: %s', error);

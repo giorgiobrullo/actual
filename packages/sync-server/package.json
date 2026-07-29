@@ -110,7 +110,7 @@
     "@actual-app/web": "workspace:*",
     "akahu": "^2.5.1",
     "argon2": "^0.44.0",
-    "avarda-mypages": "git+https://github.com/giorgiobrullo/avarda-mypages.git#v0.1.0",
+    "avarda-mypages": "git+https://github.com/giorgiobrullo/avarda-mypages.git#v0.2.0",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.10.0",
     "camoufox-js": "^0.11.2",

@@ -1,4 +1,5 @@
 import { AvardaMyPages, TF_BANK_ITALY } from 'avarda-mypages';
+import type { CardConfigCard } from 'avarda-mypages';
 import createDebug from 'debug';
 
 import type { TFBankAccount } from '#app-tfbank/models/tfbank';
@@ -6,11 +7,9 @@ import { AuthFailedError } from '#app-tfbank/utils/errors';
 import { SecretName, secretsService } from '#services/secrets-service';
 
 import * as smsOtpService from './sms-otp-service';
+import { isProbeEnabled, probeAccountDiscovery } from './tfbank-probe';
 
 const debug = createDebug('actual:tfbank:auth');
-
-const CARD_BASE = 'https://cardmanagement.production.avarda.com';
-const MY_BASE = 'https://mypages-api.production.avarda.com';
 
 // A live session wraps the authenticated Avarda client plus the accounts we
 // discovered during login. The access token is short-lived (~5 min), so the
@@ -50,55 +49,28 @@ function num(value: unknown): number | undefined {
   return typeof n === 'number' && Number.isFinite(n) ? n : undefined;
 }
 
-/** Recursively find the first string/number value for `key` in a payload. */
-function deepFind(value: unknown, key: string, depth = 0): string | undefined {
-  if (depth > 6 || value == null || typeof value !== 'object') return undefined;
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = deepFind(item, key, depth + 1);
-      if (found) return found;
-    }
-    return undefined;
-  }
-  const rec = value as Record<string, unknown>;
-  const direct = rec[key];
-  if (typeof direct === 'string' || typeof direct === 'number') {
-    return String(direct);
-  }
-  for (const v of Object.values(rec)) {
-    const found = deepFind(v, key, depth + 1);
-    if (found) return found;
-  }
-  return undefined;
-}
-
-async function rawGet(
-  url: string,
-  headers: Record<string, string>,
-): Promise<{ status: number; body: string }> {
-  const res = await fetch(url, { headers });
-  return { status: res.status, body: await res.text() };
-}
-
 /**
- * Build the TF Bank account. `cornicheAccountId` (a GUID from
- * /api/card/details) is the account id used by /api/v3/transactions/{id}; it is
- * stored as `account_id` so bank-sync passes it straight through. Balance,
- * limit and available credit come from GetCreditLimits.
+ * Build the TF Bank account from a card in `/api/v1/config` plus its limits.
+ *
+ * `cornicheAccountId` is stored as `account_id` because that is what
+ * `/api/v3/transactions/{id}` takes, so bank-sync can pass it straight through.
+ * The card is identified separately by `cornicheCardPan`, which is what credit
+ * limits and the overview are keyed by.
  */
 export function buildAccount(
-  cornicheAccountId: string,
+  card: CardConfigCard,
   limits: unknown,
-  cardDetails: unknown,
 ): TFBankAccount {
   const lim = (limits && typeof limits === 'object' ? limits : {}) as Record<
     string,
     unknown
   >;
-  const maskedPan = deepFind(cardDetails, 'maskedCardNumber') ?? '';
-  const last4 = maskedPan.replace(/\D/g, '').slice(-4) || '0000';
+  const last4 =
+    String(card.maskedCardNumber ?? card.cornicheCardPan ?? '')
+      .replace(/\D/g, '')
+      .slice(-4) || '0000';
   return {
-    account_id: cornicheAccountId,
+    account_id: card.cornicheAccountId,
     name: 'TF Bank',
     display_number: last4,
     balance: num(lim.usedBalance ?? lim.openingBalance),
@@ -108,16 +80,11 @@ export function buildAccount(
 }
 
 /**
- * Perform the full TF Bank login and discover the account.
+ * Perform the full TF Bank login and discover the cards on the account.
  *
- * Contract (from the card-management module bundle):
- *   GET /api/card/details            -> { cornicheAccountId, cornicheCardPan, ... }
- *   GET /api/v3/transactions/{cornicheAccountId}?transactionDateFrom&transactionDateTo&locale
- *   GET /api/v3/CreditCard/overview/{cornicheCardPan}?numberOfTransactions=N
- * card/details 404s on the card-management host, so it's fetched from the
- * mypages host (where /api/client/details lives), with the card host as a
- * fallback. Logs the card/details payload + a transactions sample so the shapes
- * can be finalized, then folded into the avarda-mypages client.
+ * Discovery is `/api/v1/config`, the only endpoint that exposes the card
+ * identifiers; the endpoints themselves live in the avarda-mypages client so
+ * this file has no URLs of its own.
  */
 export async function performLogin(): Promise<TFBankSession> {
   const email = secretsService.get(SecretName.tfbank_username);
@@ -163,71 +130,44 @@ export async function performLogin(): Promise<TFBankSession> {
 
   let accounts: TFBankAccount[] = [];
   try {
-    const token = client.getSession()?.accessToken ?? '';
-    const H: Record<string, string> = {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Origin: 'https://areacliente.tfbank.it',
-      Referer: 'https://areacliente.tfbank.it/',
-    };
-
-    // card/details -> corniche GUIDs (try mypages host first, then card host).
-    let cardDetails: unknown = null;
-    for (const base of [MY_BASE, CARD_BASE]) {
+    // A login costs the user an SMS, so when the discovery probe is enabled it
+    // piggybacks on this one rather than logging in again on its own.
+    if (isProbeEnabled()) {
       try {
-        const { status, body } = await rawGet(`${base}/api/card/details`, H);
-        debug('card/details [%s] %d -> %s', base, status, body.slice(0, 900));
-        if (status >= 200 && status < 300 && body) {
-          cardDetails = JSON.parse(body);
-          break;
-        }
+        await probeAccountDiscovery(client);
       } catch (e) {
-        debug(
-          'card/details [%s] err %s',
-          base,
-          e instanceof Error ? e.message : e,
-        );
+        debug('probe failed: %s', e instanceof Error ? e.message : e);
       }
     }
 
-    const cornicheAccountId = deepFind(cardDetails, 'cornicheAccountId');
-    const cornicheCardPan = deepFind(cardDetails, 'cornicheCardPan');
-    debug(
-      'cornicheAccountId=%s cornicheCardPan=%s',
-      cornicheAccountId,
-      cornicheCardPan,
+    const cards = await client.getCards();
+    debug('config returned %d card(s)', cards.length);
+
+    // Credit limits are per card, so they are fetched per card rather than once
+    // for the customer.
+    accounts = await Promise.all(
+      cards.map(async card => {
+        const limits = await client
+          .getCreditLimits(card.cornicheCardPan)
+          .catch(e => {
+            debug(
+              'credit limits failed for %s: %s',
+              card.cornicheCardPan,
+              e instanceof Error ? e.message : e,
+            );
+            return {};
+          });
+        return buildAccount(card, limits);
+      }),
     );
 
-    const limits = await client.getCreditLimits();
-    debug('GetCreditLimits raw payload: %s', JSON.stringify(limits));
-
-    // Sample transactions to lock in the shape (2-year window).
-    if (cornicheAccountId) {
-      const to = new Date().toISOString().slice(0, 10);
-      const from = new Date(Date.now() - 730 * 86_400_000)
-        .toISOString()
-        .slice(0, 10);
-      try {
-        const { status, body } = await rawGet(
-          `${CARD_BASE}/api/v3/transactions/${cornicheAccountId}?transactionDateFrom=${from}&transactionDateTo=${to}&locale=it-IT`,
-          H,
-        );
-        debug('SAMPLE transactions %d -> %s', status, body.slice(0, 1800));
-      } catch (e) {
-        debug('SAMPLE transactions err %s', e instanceof Error ? e.message : e);
-      }
+    for (const account of accounts) {
+      debug(
+        'discovered account_id=%s (**** %s)',
+        account.account_id,
+        account.display_number,
+      );
     }
-
-    const accountId = cornicheAccountId ?? email;
-    accounts = [buildAccount(accountId, limits, cardDetails)];
-    debug(
-      'Built account id=%s (%s)',
-      accountId,
-      cornicheAccountId
-        ? 'RESOLVED from card/details'
-        : 'FALLBACK — card/details did not yield a GUID',
-    );
   } catch (error) {
     debug('Failed discovering account: %s', error);
   }

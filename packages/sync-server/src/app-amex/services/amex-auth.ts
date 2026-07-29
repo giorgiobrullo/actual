@@ -175,6 +175,17 @@ export async function performLogin(): Promise<AmexSession> {
 
     page.on('response', async response => {
       const url = response.url();
+
+      // Account discovery keys off a fixed set of servicing endpoints below.
+      // When Amex moves them the only symptom is "0 accounts", with nothing to
+      // say where they went, so record every servicing call that goes past.
+      if (
+        url.includes('/api/') &&
+        !/\.(js|css|png|jpe?g|svg|woff2?)/.test(url)
+      ) {
+        debug('api call: %s %d', url.split('?')[0], response.status());
+      }
+
       // Look for API responses that contain account tokens
       if (
         url.includes('/api/servicing/v1/financials/credit_limits') ||

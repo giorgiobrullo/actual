@@ -16,4 +16,5 @@ export const validateSecret = service.validateSecret;
 export const storeMessage = service.storeMessage;
 export const getOTP = service.getOTP;
 export const clearOTP = service.clearOTP;
+export const beginAttempt = service.beginAttempt;
 export const waitForOTP = service.waitForOTP;

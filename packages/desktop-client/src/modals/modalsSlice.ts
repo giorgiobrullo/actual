@@ -3,6 +3,7 @@ import type { IntegerAmount } from '@actual-app/core/shared/util';
 import type { File } from '@actual-app/core/types/file';
 import type {
   AccountEntity,
+  BankSyncCredentialSource,
   CategoryEntity,
   CategoryGroupEntity,
   GoCardlessToken,
@@ -129,7 +130,8 @@ export type Modal =
   | {
       name: 'pluggyai-init';
       options: {
-        onSuccess: () => void;
+        onSuccess: (perBudgetFile: boolean) => void;
+        credentialSource: BankSyncCredentialSource;
       };
     }
   | {

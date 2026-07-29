@@ -546,8 +546,6 @@ function SelectedTransactionsFloatingActionBar({
               }}
               items={[
                 // Add support later on.
-                // Pikaday doesn't play well will mobile.
-                // We should consider switching to react-aria date picker.
                 // {
                 //   name: 'date',
                 //   text: 'Date',

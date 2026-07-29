@@ -34,9 +34,14 @@ import {
   SvgCheveronDown,
 } from '@actual-app/components/icons/v1';
 import {
+  SvgAlertTriangle,
   SvgArrowsSynchronize,
   SvgCalendar3,
+  SvgCheckCircle1,
+  SvgCheckCircleHollow,
+  SvgEditSkull1,
   SvgHyperlink2,
+  SvgLockClosed,
   SvgSubtract,
 } from '@actual-app/components/icons/v2';
 import { Popover } from '@actual-app/components/popover';
@@ -153,6 +158,7 @@ type TransactionHeaderProps = {
   hasSelected: boolean;
   showAccount: boolean;
   showCategory: boolean;
+  showGroup?: boolean;
   showBalance: boolean;
   showCleared: boolean;
   scrollWidth: number;
@@ -167,6 +173,7 @@ const TransactionHeader = memo(
     hasSelected,
     showAccount,
     showCategory,
+    showGroup,
     showBalance,
     showCleared,
     scrollWidth,
@@ -274,6 +281,15 @@ const TransactionHeader = memo(
             onSort('notes', selectAscDesc(field, ascDesc, 'notes', 'asc'))
           }
         />
+        {showGroup && (
+          <HeaderCell
+            value={t('Group')}
+            width="flex"
+            alignItems="flex"
+            marginLeft={-5}
+            id="group"
+          />
+        )}
         {showCategory && (
           <HeaderCell
             value={t('Category')}
@@ -327,6 +343,7 @@ const TransactionHeader = memo(
             width={38}
             alignItems="center"
             id="cleared"
+            tooltip={<ClearedColumnLegend />}
             icon={field === 'cleared' ? ascDesc : 'clickable'}
             onClick={() => {
               onSort(
@@ -342,6 +359,63 @@ const TransactionHeader = memo(
 );
 
 TransactionHeader.displayName = 'TransactionHeader';
+
+function ClearedColumnLegend() {
+  const legendItems = [
+    {
+      Icon: SvgCheckCircleHollow,
+      color: theme.pageTextSubdued,
+      label: <Trans>Uncleared: not yet verified</Trans>,
+    },
+    {
+      Icon: SvgCheckCircle1,
+      color: theme.noticeTextLight,
+      label: <Trans>Cleared: verified against your account</Trans>,
+    },
+    {
+      Icon: SvgLockClosed,
+      color: theme.noticeTextLight,
+      label: <Trans>Reconciled: locked after reconciliation</Trans>,
+    },
+    {
+      Icon: SvgCalendar3,
+      color: theme.pageTextSubdued,
+      label: <Trans>Upcoming scheduled transaction</Trans>,
+    },
+    {
+      Icon: SvgAlertTriangle,
+      color: theme.warningText,
+      label: <Trans>Due scheduled transaction</Trans>,
+    },
+    {
+      Icon: SvgEditSkull1,
+      color: theme.errorText,
+      label: <Trans>Missed scheduled transaction</Trans>,
+    },
+  ];
+
+  return (
+    <View style={{ maxWidth: 260, padding: 4 }}>
+      <Text style={{ fontWeight: 600 }}>
+        <Trans>Transaction status</Trans>
+      </Text>
+      {legendItems.map(({ Icon, color, label }, index) => (
+        <View
+          key={index}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            marginTop: 6,
+          }}
+        >
+          <Icon style={{ width: 13, height: 13, color, flexShrink: 0 }} />
+          <Text>{label}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
 
 type StatusCellProps = {
   id: TransactionEntity['id'];
@@ -436,6 +510,7 @@ type HeaderCellProps = {
   value: string;
   id: string;
   icon?: 'asc' | 'desc' | 'clickable';
+  tooltip?: ReactNode;
   onClick?: () => void;
 } & Pick<CSSProperties, 'width' | 'alignItems' | 'marginLeft' | 'marginRight'>;
 
@@ -447,6 +522,7 @@ function HeaderCell({
   marginLeft,
   marginRight,
   icon,
+  tooltip,
   onClick,
 }: HeaderCellProps) {
   const style = {
@@ -469,8 +545,8 @@ function HeaderCell({
         borderTopWidth: 0,
         borderBottomWidth: 0,
       }}
-      unexposedContent={({ value: cellValue }) =>
-        onClick ? (
+      unexposedContent={({ value: cellValue }) => {
+        const content = onClick ? (
           <Button variant="bare" onPress={onClick} style={style}>
             <UnexposedCellContent value={cellValue} />
             {icon === 'asc' && (
@@ -482,8 +558,16 @@ function HeaderCell({
           </Button>
         ) : (
           <Text style={style}>{cellValue}</Text>
-        )
-      }
+        );
+
+        return tooltip ? (
+          <Tooltip content={tooltip} placement="bottom end">
+            {content}
+          </Tooltip>
+        ) : (
+          content
+        );
+      }}
     />
   );
 }
@@ -851,6 +935,7 @@ type TransactionProps = {
   };
   editing: boolean;
   showAccount?: boolean;
+  showGroup?: boolean;
   showBalance?: boolean;
   showCleared?: boolean;
   showZeroInDeposit?: boolean;
@@ -918,6 +1003,7 @@ const Transaction = memo(function Transaction({
   transferAccountsByTransaction,
   editing,
   showAccount,
+  showGroup,
   showBalance,
   showCleared,
   showZeroInDeposit,
@@ -1584,6 +1670,23 @@ const Transaction = memo(function Transaction({
           onExpose={name => !isPreview && onEdit(id, name)}
         />
 
+        {showGroup && (
+          <Cell
+            name="group"
+            width="flex"
+            style={{
+              fontStyle: 'italic',
+              color: theme.pageTextSubdued,
+              fontWeight: 300,
+            }}
+            value={
+              categoryId
+                ? (getGroupByCatId(categoryGroups)[categoryId]?.name ?? '')
+                : ''
+            }
+          />
+        )}
+
         {(isPreview && !isChild) || isParent ? (
           <Cell
             /* Category field (Split button) for parent transactions */
@@ -2106,6 +2209,7 @@ type NewTransactionProps = {
   onSplit: (id: TransactionEntity['id']) => void;
   payees: PayeeEntity[];
   showAccount?: boolean;
+  showGroup?: boolean;
   showBalance?: boolean;
   balance?: number | null;
   showCleared?: boolean;
@@ -2124,6 +2228,7 @@ function NewTransaction({
   editingTransaction,
   focusedField,
   showAccount,
+  showGroup,
   showBalance,
   showCleared,
   dateFormat,
@@ -2189,6 +2294,7 @@ function NewTransaction({
           subtransactions={transaction.is_parent ? childTransactions : null}
           transferAccountsByTransaction={transferAccountsByTransaction}
           showAccount={showAccount}
+          showGroup={showGroup}
           showBalance={showBalance}
           showCleared={showCleared}
           focusedField={
@@ -2287,6 +2393,7 @@ type TransactionTableInnerProps = {
   showCleared: boolean;
   showAccount: boolean;
   showCategory: boolean;
+  showGroup?: boolean;
   currentAccountId: AccountEntity['id'];
   currentCategoryId: CategoryEntity['id'];
   isAdding: boolean;
@@ -2423,6 +2530,7 @@ function TransactionTableInner({
       payees,
       showCleared,
       showAccount,
+      showGroup,
       showBalances,
       balances,
       hideFraction,
@@ -2495,6 +2603,7 @@ function TransactionTableInner({
         transferAccountsByTransaction={props.transferAccountsByTransaction}
         subtransactions={childTransactions}
         showAccount={showAccount}
+        showGroup={showGroup}
         showBalance={showBalances}
         showCleared={showCleared}
         selected={selected}
@@ -2573,6 +2682,7 @@ function TransactionTableInner({
           hasSelected={props.selectedItems.size > 0}
           showAccount={props.showAccount}
           showCategory={props.showCategory}
+          showGroup={props.showGroup}
           showBalance={props.showBalances}
           showCleared={props.showCleared}
           scrollWidth={scrollWidth}
@@ -2599,6 +2709,7 @@ function TransactionTableInner({
               categoryGroups={props.categoryGroups}
               payees={props.payees || []}
               showAccount={props.showAccount}
+              showGroup={props.showGroup}
               showBalance={props.showBalances}
               showCleared={props.showCleared}
               dateFormat={dateFormat}
@@ -2681,6 +2792,7 @@ export type TransactionTableProps = {
   showCleared: boolean;
   showAccount: boolean;
   showCategory: boolean;
+  showGroup?: boolean;
   currentAccountId: AccountEntity['id'];
   currentCategoryId: CategoryEntity['id'];
   isAdding: boolean;
@@ -2983,6 +3095,7 @@ export const TransactionTable = forwardRef(
         'account',
         'payee',
         'notes',
+        'group',
         'category',
         'debit',
         'credit',
@@ -3001,6 +3114,7 @@ export const TransactionTable = forwardRef(
         'account',
         'payee',
         'notes',
+        'group',
         'category',
         'debit',
         'credit',
@@ -3016,7 +3130,8 @@ export const TransactionTable = forwardRef(
         : fields.filter(
             f =>
               (props.showAccount || f !== 'account') &&
-              (props.showCategory || f !== 'category'),
+              (props.showCategory || f !== 'category') &&
+              (props.showGroup || f !== 'group'),
           );
 
       if (item?.id && isPreviewId(item.id)) {
@@ -3526,6 +3641,19 @@ const getCategoriesById = memoizeOne(
     categoryGroups?.forEach(group => {
       group.categories?.forEach(cat => {
         res[cat.id] = cat;
+      });
+    });
+
+    return res;
+  },
+);
+
+const getGroupByCatId = memoizeOne(
+  (categoryGroups: CategoryGroupEntity[] | null | undefined) => {
+    const res: { [id: CategoryEntity['id']]: CategoryGroupEntity } = {};
+    categoryGroups?.forEach(group => {
+      group.categories?.forEach(cat => {
+        res[cat.id] = group;
       });
     });
 

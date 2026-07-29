@@ -15,6 +15,7 @@ import {
 import { app as mainApp } from '#server/main-app';
 import { mutator } from '#server/mutators';
 import { del, get, post } from '#server/post';
+import { getPrefs } from '#server/prefs';
 import { getServer } from '#server/server-config';
 import { batchMessages } from '#server/sync';
 import { undoable, withUndo } from '#server/undo';
@@ -25,6 +26,7 @@ import { amountToInteger } from '#shared/util';
 import type { ImportTransactionsOpts } from '#types/api-handlers';
 import type {
   AccountEntity,
+  BankSyncProviderStatus,
   BankSyncStatus,
   CategoryEntity,
   GoCardlessToken,
@@ -326,6 +328,7 @@ async function linkPluggyAiAccount({
   externalAccount: SyncServerPluggyAiAccount;
 }) {
   let id;
+  const fileId = getPrefs()?.cloudFileId;
 
   const institution = {
     // Persist a null name when the provider doesn't report an institution, so
@@ -381,6 +384,7 @@ async function linkPluggyAiAccount({
     bank.bank_id,
     startingDate,
     startingBalance,
+    fileId,
   );
 
   await handleSyncResponse(syncRes, id);
@@ -1134,7 +1138,7 @@ async function simpleFinStatus() {
   );
 }
 
-async function pluggyAiStatus() {
+async function pluggyAiStatus(): Promise<BankSyncProviderStatus> {
   const userToken = await asyncStorage.getItem('user-token');
 
   if (!userToken) {
@@ -1146,11 +1150,13 @@ async function pluggyAiStatus() {
     throw new Error('Failed to get server config.');
   }
 
+  const fileId = getPrefs()?.cloudFileId;
   return post(
     serverConfig.PLUGGYAI_SERVER + '/status',
     {},
     {
       'X-ACTUAL-TOKEN': userToken,
+      ...(fileId ? { 'X-Actual-File-Id': fileId } : {}),
     },
   );
 }
@@ -1215,11 +1221,13 @@ async function pluggyAiAccounts() {
   }
 
   try {
+    const fileId = getPrefs()?.cloudFileId;
     return await post(
       serverConfig.PLUGGYAI_SERVER + '/accounts',
       {},
       {
         'X-ACTUAL-TOKEN': userToken,
+        ...(fileId ? { 'X-Actual-File-Id': fileId } : {}),
       },
       60000,
     );
@@ -1676,6 +1684,7 @@ async function accountsBankSync({
   const newTransactions: Array<TransactionEntity['id']> = [];
   const matchedTransactions: Array<TransactionEntity['id']> = [];
   const updatedAccounts: Array<AccountEntity['id']> = [];
+  const fileId = getPrefs()?.cloudFileId;
 
   for (const acct of accounts) {
     if (acct.bankId && acct.account_id) {
@@ -1687,6 +1696,9 @@ async function accountsBankSync({
           acct.id,
           acct.account_id,
           acct.bankId,
+          undefined,
+          undefined,
+          fileId,
         );
 
         const syncResponseData = await handleSyncResponse(

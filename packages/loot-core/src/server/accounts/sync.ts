@@ -295,6 +295,7 @@ async function downloadSimpleFinTransactions(
 async function downloadPluggyAiTransactions(
   acctId: AccountEntity['id'],
   since: string,
+  fileId?: string,
 ) {
   const userToken = await asyncStorage.getItem('user-token');
   if (!userToken) return;
@@ -309,6 +310,7 @@ async function downloadPluggyAiTransactions(
     },
     {
       'X-ACTUAL-TOKEN': userToken,
+      ...(fileId ? { 'X-Actual-File-Id': fileId } : {}),
     },
     60000,
   );
@@ -1190,6 +1192,7 @@ export async function syncAccount(
   bankId: string,
   customStartingDate?: string,
   customStartingBalance?: number,
+  fileId?: string,
 ) {
   const acctRow = await db.select('accounts', id);
 
@@ -1202,7 +1205,11 @@ export async function syncAccount(
   if (acctRow.account_sync_source === 'simpleFin') {
     download = await downloadSimpleFinTransactions(acctId, syncStartDate);
   } else if (acctRow.account_sync_source === 'pluggyai') {
-    download = await downloadPluggyAiTransactions(acctId, syncStartDate);
+    download = await downloadPluggyAiTransactions(
+      acctId,
+      syncStartDate,
+      fileId,
+    );
   } else if (acctRow.account_sync_source === 'akahu') {
     download = await downloadAkahuTransactions(acctId, syncStartDate);
   } else if (acctRow.account_sync_source === 'amex') {

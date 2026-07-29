@@ -202,7 +202,12 @@ function sendServerStartedMessage() {
 
 const OPENID_SETUP_ATTEMPTS = 6;
 
-async function configureOpenId(openIdConfig) {
+// Derived from bootstrap rather than restated: the value comes straight from
+// convict, whose shape carries extra metadata that a hand-written type would
+// have to keep in step with.
+type OpenIdConfig = Parameters<typeof bootstrap>[0]['openId'];
+
+async function configureOpenId(openIdConfig: OpenIdConfig) {
   for (let attempt = 1; attempt <= OPENID_SETUP_ATTEMPTS; attempt++) {
     const isLastAttempt = attempt === OPENID_SETUP_ATTEMPTS;
 

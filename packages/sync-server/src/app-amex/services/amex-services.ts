@@ -311,7 +311,12 @@ export function normalizeTransaction(raw: AmexRawTransaction): Transaction {
     amount, // Keep in decimal - sync.ts will convert to cents
     payeeName: payeeName.trim(),
     notes: noteParts.join(' | '),
-    date: raw.post_date, // Use post_date as the transaction date
+    // The date the card was actually used, which is what the Amex statement
+    // shows and what a purchase is remembered by. `post_date` can trail it by
+    // days and only decides which statement a charge lands in, which is not
+    // something budgeting cares about. Payments carry no charge date, hence
+    // the fallback.
+    date: raw.charge_date || raw.post_date,
     booked: true, // Posted transactions are cleared
     // Include raw data for debugging/future use
     rawChargeDate: raw.charge_date,

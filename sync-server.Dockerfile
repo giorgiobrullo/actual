@@ -61,6 +61,50 @@ RUN rm -rf ./node_modules/@actual-app/web ./node_modules/@actual-app/sync-server
 COPY ./packages/desktop-client/package.json ./node_modules/@actual-app/web/package.json
 RUN cp -r ./packages/desktop-client/build ./node_modules/@actual-app/web/build
 
+# Headless client for scheduled bank syncing (bin/auto-bank-sync.mjs explains
+# why this has to be a client rather than a job inside the sync server). Built
+# from the same commit as the server image so the two can never disagree about
+# which bank providers exist. Branches from `deps` rather than `builder`
+# because it needs only the api package, not the whole web client.
+FROM deps AS autosync-builder
+
+WORKDIR /app
+
+COPY packages/ ./packages/
+
+# lage's task hasher needs a repo here too, for the same reason as `builder`.
+RUN git -c init.defaultBranch=master init -q \
+    && git -c user.email=build@docker -c user.name=docker-build add -A \
+    && git -c user.email=build@docker -c user.name=docker-build commit -qm build
+
+RUN yarn build:api
+
+RUN yarn workspaces focus @actual-app/api --production
+
+FROM node:22-bookworm-slim AS autosync
+
+RUN apt-get update && apt-get install -y tini && apt-get clean -y && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ACTUAL_DATA_DIR=/data
+
+# node_modules/@actual-app/* are workspace symlinks into packages/, so the
+# targets have to come along for the import to resolve.
+COPY --from=autosync-builder /app/node_modules ./node_modules
+COPY --from=autosync-builder /app/packages/api ./packages/api
+COPY --from=autosync-builder /app/packages/loot-core ./packages/loot-core
+COPY --from=autosync-builder /app/packages/crdt ./packages/crdt
+COPY bin/auto-bank-sync.mjs ./auto-bank-sync.mjs
+
+# The budget is cached here between runs so each sync only fetches the delta.
+RUN mkdir -p /data && chown -R node:node /data
+USER node
+VOLUME /data
+
+ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
+CMD ["node", "auto-bank-sync.mjs"]
+
 FROM node:22-bookworm-slim AS prod
 
 # Minimal runtime dependencies. xvfb provides a virtual X display: Camoufox

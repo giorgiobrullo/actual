@@ -89,6 +89,25 @@ describe('mergeDiscoveredAccounts', () => {
     });
   });
 
+  it('names the card, not the cardholder', () => {
+    // Amex returns no product name on these payloads, only the embossed
+    // holder name. Naming the account after a person would be worse than the
+    // generic fallback.
+    const accounts = mergeDiscoveredAccounts(
+      [],
+      [
+        {
+          account_token: 'tok-1',
+          embossed_name: 'CARDHOLDER NAME',
+          display_account_number: '0000',
+        },
+      ],
+    );
+
+    expect(accounts[0].name).toBe('Amex Card ****0000');
+    expect(accounts[0].display_number).toBe('0000');
+  });
+
   it('ignores payloads with no account tokens', () => {
     expect(mergeDiscoveredAccounts([], { status: 'ok' })).toEqual([]);
     expect(mergeDiscoveredAccounts([], null)).toEqual([]);

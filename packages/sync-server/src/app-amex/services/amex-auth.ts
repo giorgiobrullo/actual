@@ -122,6 +122,9 @@ export async function performLogin(): Promise<AmexSession> {
     context = await launchStealthContext({
       locale: 'it-IT',
       proxyServer: proxyUrl || undefined,
+      // Kept between runs so Amex's device trust survives; a fresh profile is
+      // challenged with a CAPTCHA every time.
+      profile: 'amex',
     });
 
     const page = context.pages()[0] ?? (await context.newPage());

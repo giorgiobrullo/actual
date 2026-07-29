@@ -24,16 +24,22 @@ const debug = createDebug('actual:amex:auth');
 const AMEX_LOGIN_URL = 'https://www.americanexpress.com/it-it/account/login';
 const AMEX_DASHBOARD_URL = 'https://global.americanexpress.com/dashboard';
 /**
- * Endpoints asked for accounts after login, in order, merging from each.
+ * Endpoints that list the member's accounts, tried in order and merged.
  *
- * v2/prefetch is the only servicing call the current dashboard makes, but the
- * older v1 endpoints still answer and each carries a different slice of the
- * data (limits, balances, naming), so all of them are tried rather than
- * stopping at the first that returns something.
+ * These answer without knowing an account up front, which is what makes them
+ * usable for discovery.
  */
-const AMEX_DISCOVERY_URLS = [
-  'https://global.americanexpress.com/api/servicing/v2/prefetch',
+const AMEX_ACCOUNT_SOURCES = [
   'https://global.americanexpress.com/api/servicing/v1/member',
+  'https://global.americanexpress.com/api/servicing/v2/prefetch',
+];
+
+/**
+ * Endpoints that describe one account, and answer 400 without an
+ * `account_token` header. They are what turn a bare token into a name, a last
+ * four and a balance, so they run once the tokens are known.
+ */
+const AMEX_ACCOUNT_DETAIL_SOURCES = [
   'https://global.americanexpress.com/api/servicing/v1/financials/credit_limits',
   'https://global.americanexpress.com/api/servicing/v1/financials/balances',
   'https://global.americanexpress.com/api/servicing/v1/financials/transaction_summary',
@@ -1056,7 +1062,7 @@ export async function performLogin(): Promise<AmexSession> {
         .map(([name, value]) => `${name}=${value}`)
         .join('; ');
 
-      for (const url of AMEX_DISCOVERY_URLS) {
+      for (const url of AMEX_ACCOUNT_SOURCES) {
         const path = url.replace('https://global.americanexpress.com', '');
         try {
           const response = await fetch(url, {
@@ -1108,6 +1114,49 @@ export async function performLogin(): Promise<AmexSession> {
         }
       }
       debug('direct discovery found %d account(s)', discoveredAccounts.length);
+
+      // Second pass: the financial endpoints answer 400 unless told which
+      // account to describe, so they can only run now that the tokens are
+      // known. This is what supplies the product name, last four and balance
+      // that the listing endpoints leave out.
+      for (const account of discoveredAccounts) {
+        for (const url of AMEX_ACCOUNT_DETAIL_SOURCES) {
+          const path = url.replace('https://global.americanexpress.com', '');
+          try {
+            const response = await fetch(url, {
+              headers: {
+                Accept: 'application/json',
+                'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8',
+                Cookie: cookieHeader,
+                account_token: account.account_token,
+              },
+            });
+            if (!response.ok) {
+              debug('detail %s -> %d', path, response.status);
+              continue;
+            }
+            mergeDiscoveredAccounts(discoveredAccounts, await response.json());
+            debug('detail %s -> 200', path);
+          } catch (e) {
+            debug(
+              'detail %s failed: %s',
+              path,
+              e instanceof Error ? e.message : e,
+            );
+          }
+        }
+      }
+
+      for (const account of discoveredAccounts) {
+        debug(
+          'account %s: name=%s ****%s balance=%s limit=%s',
+          account.account_token,
+          account.name,
+          account.display_number,
+          account.balance,
+          account.credit_limit,
+        );
+      }
     }
 
     // Navigate to dashboard to trigger API calls for account discovery

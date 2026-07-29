@@ -181,11 +181,10 @@ export function mergeDiscoveredAccounts(
     const displayNumber =
       firstText(record, ['display_account_number', 'last_five', 'last_four']) ??
       token.slice(-4);
-    const name = firstText(record, [
-      'product_name',
-      'display_name',
-      'embossed_name',
-    ]);
+    // Deliberately not `embossed_name`: that is the cardholder, and Amex
+    // returns no product name here, so falling through to it would name the
+    // account after the person rather than the card.
+    const name = firstText(record, ['product_name', 'display_name']);
     const balance = firstNumber(record, [
       'statement_balance_amount',
       'remaining_statement_balance_amount',

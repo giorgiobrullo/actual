@@ -7,7 +7,6 @@ import { AuthFailedError } from '#app-tfbank/utils/errors';
 import { SecretName, secretsService } from '#services/secrets-service';
 
 import * as smsOtpService from './sms-otp-service';
-import { isProbeEnabled, probeAccountDiscovery } from './tfbank-probe';
 
 const debug = createDebug('actual:tfbank:auth');
 
@@ -130,16 +129,6 @@ export async function performLogin(): Promise<TFBankSession> {
 
   let accounts: TFBankAccount[] = [];
   try {
-    // A login costs the user an SMS, so when the discovery probe is enabled it
-    // piggybacks on this one rather than logging in again on its own.
-    if (isProbeEnabled()) {
-      try {
-        await probeAccountDiscovery(client);
-      } catch (e) {
-        debug('probe failed: %s', e instanceof Error ? e.message : e);
-      }
-    }
-
     const cards = await client.getCards();
     debug('config returned %d card(s)', cards.length);
 

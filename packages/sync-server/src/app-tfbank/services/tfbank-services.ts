@@ -12,8 +12,6 @@ import {
 
 const debug = createDebug('actual:tfbank:services');
 
-const CARD_BASE = 'https://cardmanagement.production.avarda.com';
-
 export function isConfigured(): boolean {
   const username = secretsService.get(SecretName.tfbank_username);
   const password = secretsService.get(SecretName.tfbank_password);
@@ -61,48 +59,45 @@ function firstString(rec: Record<string, unknown>, keys: string[]): string {
  * Normalize an Avarda card transaction into Actual's shape.
  *
  * Amount is kept in decimal form; sync.ts converts it to cents. Credit-card
- * convention: purchases are money out (negative), payments/refunds are money in
- * (positive). The exact field names / sign are finalized against the live
- * SAMPLE captured during login (see tfbank-auth) then folded into the client.
+ * convention: purchases are money out (negative), payments and refunds are
+ * money in (positive). Avarda reports every amount as a positive magnitude and
+ * expresses direction through `type` instead, so the sign is applied here.
  */
 function normalizeTransaction(raw: unknown): Transaction | null {
   if (!raw || typeof raw !== 'object') return null;
   const rec = raw as Record<string, unknown>;
 
-  const rawDate = firstString(rec, [
-    'transactionDate',
-    'bookingDate',
-    'date',
-    'valueDate',
-    'purchaseDate',
-  ]);
+  const rawDate = firstString(rec, ['date', 'transactionDate', 'bookingDate']);
   if (!rawDate) {
     debug('skip txn (no date): %s', JSON.stringify(rec).slice(0, 200));
     return null;
   }
   const date = rawDate.split('T')[0];
 
-  const amount = num(rec.amount ?? rec.transactionAmount ?? rec.billingAmount);
-  if (amount === undefined) {
+  const magnitude = num(rec.amount ?? rec.totalAmount);
+  if (magnitude === undefined) {
     debug('skip txn (no amount): %s', JSON.stringify(rec).slice(0, 200));
     return null;
   }
 
+  // Anything that returns money to the card is an inflow; everything else is a
+  // purchase. Matching is loose because `type` is a server-side enum whose full
+  // set we have not seen.
+  const type = firstString(rec, ['type', 'transactionType']);
+  const isInflow = /refund|return|payment|credit|repayment/i.test(type);
+  const amount = isInflow ? Math.abs(magnitude) : -Math.abs(magnitude);
+
+  // `orderReference` is Avarda's own per-transaction reference and is what
+  // makes reruns idempotent. The date/amount/description composite is only a
+  // fallback for rows that carry no reference.
   const transactionId =
-    firstString(rec, [
-      'transactionId',
-      'id',
-      'reference',
-      'transactionReference',
-    ]) || `${date}-${amount}`;
+    firstString(rec, ['orderReference', 'transactionId', 'id']) ||
+    `${date}-${magnitude}-${firstString(rec, ['description'])}`;
 
   const payeeName =
-    firstString(rec, ['merchantName', 'description', 'text', 'merchant']) ||
-    'TF Bank';
+    firstString(rec, ['description', 'merchantName']) || 'TF Bank';
 
-  const noteParts: string[] = [];
-  const category = firstString(rec, ['merchantCategory', 'category']);
-  if (category) noteParts.push(category);
+  const noteParts = [firstString(rec, ['notes']), type].filter(Boolean);
 
   return {
     transactionId,
@@ -114,61 +109,65 @@ function normalizeTransaction(raw: unknown): Transaction | null {
   };
 }
 
-/** Coerce a transactions payload (array or wrapped) into an array. */
+/**
+ * Coerce a transactions payload into a flat array.
+ *
+ * The card API groups rows under `transactions` keyed by period rather than
+ * returning a plain list, so object values are flattened as well.
+ */
 function toArray(payload: unknown): unknown[] {
   if (Array.isArray(payload)) return payload;
-  if (payload && typeof payload === 'object') {
-    for (const key of ['transactions', 'items', 'data', 'results']) {
-      const value = (payload as Record<string, unknown>)[key];
-      if (Array.isArray(value)) return value;
+  if (!payload || typeof payload !== 'object') return [];
+
+  const rec = payload as Record<string, unknown>;
+  for (const key of ['transactions', 'items', 'data', 'results']) {
+    const value = rec[key];
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === 'object') {
+      return Object.values(value as Record<string, unknown>).flatMap(v =>
+        Array.isArray(v) ? v : [],
+      );
     }
   }
   return [];
 }
 
 /**
- * Fetch card transactions for an account. `accountId` is the cornicheAccountId
- * stored at link time; the endpoint requires a from/to date window.
+ * Fetch card transactions for an account.
+ *
+ * `accountId` is the `cornicheAccountId` stored at link time. Endpoint details
+ * (the required date window and the locale enum) live in the avarda-mypages
+ * client.
  */
 export async function getTransactions(
   accountId: string,
   startDate?: string,
-  _endDate?: string,
+  endDate?: string,
 ): Promise<Transaction[]> {
   if (!isConfigured()) {
     throw new TFBankSetupError();
   }
 
   const client = await getAuthenticatedClient();
-  const token = client.accessToken ?? '';
 
-  const to = new Date().toISOString().slice(0, 10);
-  const from = startDate
-    ? startDate.slice(0, 10)
-    : new Date(Date.now() - 730 * 86_400_000).toISOString().slice(0, 10);
+  const transactionDateTo = (endDate ?? new Date().toISOString()).slice(0, 10);
+  const transactionDateFrom = (
+    startDate ?? new Date(Date.now() - 730 * 86_400_000).toISOString()
+  ).slice(0, 10);
 
-  const url =
-    `${CARD_BASE}/api/v3/transactions/${encodeURIComponent(accountId)}` +
-    `?transactionDateFrom=${from}&transactionDateTo=${to}&locale=it-IT`;
-
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
-      Origin: 'https://areacliente.tfbank.it',
-      Referer: 'https://areacliente.tfbank.it/',
-    },
+  const payload = await client.getTransactions({
+    cornicheAccountId: accountId,
+    transactionDateFrom,
+    transactionDateTo,
   });
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    debug('transactions %d -> %s', res.status, body.slice(0, 300));
-    throw new Error(`TF Bank transactions request failed: ${res.status}`);
-  }
-
-  const payload = await res.json();
   const raw = toArray(payload);
-  debug('fetched %d raw transaction(s) for %s', raw.length, from);
+  debug(
+    'fetched %d raw transaction(s) between %s and %s',
+    raw.length,
+    transactionDateFrom,
+    transactionDateTo,
+  );
 
   const transactions = raw
     .map(normalizeTransaction)

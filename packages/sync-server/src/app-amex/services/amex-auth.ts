@@ -23,6 +23,10 @@ const debug = createDebug('actual:amex:auth');
 // Amex Italy login URL
 const AMEX_LOGIN_URL = 'https://www.americanexpress.com/it-it/account/login';
 const AMEX_DASHBOARD_URL = 'https://global.americanexpress.com/dashboard';
+// The single servicing call the dashboard makes on a cold profile; it carries
+// the account tokens everything else is keyed by.
+const AMEX_PREFETCH_URL =
+  'https://global.americanexpress.com/api/servicing/v2/prefetch';
 
 // Session cache - stores browser context for reuse
 type AmexSession = {
@@ -998,6 +1002,34 @@ export async function performLogin(): Promise<AmexSession> {
     if (!cookies['aat']) {
       debug('Missing aat cookie, available cookies: %o', Object.keys(cookies));
       throw new AuthFailedError('Login succeeded but session cookie not found');
+    }
+
+    // Ask the servicing API directly before falling back to watching the page.
+    // Interception only sees a request the app actually makes, and with a warm
+    // profile the dashboard renders from its own cache without re-fetching, so
+    // the better the session persistence works the less there is to intercept.
+    if (discoveredAccounts.length === 0) {
+      try {
+        const response = await fetch(AMEX_PREFETCH_URL, {
+          headers: {
+            Accept: 'application/json',
+            'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8',
+            Cookie: Object.entries(cookies)
+              .map(([name, value]) => `${name}=${value}`)
+              .join('; '),
+          },
+        });
+        debug('prefetch API responded %d', response.status);
+        if (response.ok) {
+          mergeDiscoveredAccounts(discoveredAccounts, await response.json());
+          debug('prefetch yielded %d account(s)', discoveredAccounts.length);
+        }
+      } catch (e) {
+        debug(
+          'prefetch request failed: %s',
+          e instanceof Error ? e.message : e,
+        );
+      }
     }
 
     // Navigate to dashboard to trigger API calls for account discovery

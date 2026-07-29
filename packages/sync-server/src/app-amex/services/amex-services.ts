@@ -222,19 +222,23 @@ export async function getAccounts(): Promise<AmexAccount[]> {
  * Note: Amount is kept in decimal form (e.g., 10.50) because
  * the sync.ts normalizeBankSyncTransactions will convert it to cents.
  */
-function normalizeTransaction(raw: AmexRawTransaction): Transaction {
+export function normalizeTransaction(raw: AmexRawTransaction): Transaction {
   const isPayment = raw.sub_type === 'payment';
 
-  // Convert amount based on transaction type
-  let amount: number;
-  if (isPayment) {
-    // Payments to the credit card should always be positive (deposit/reduces debt)
-    // The API returns negative amounts for payments, so we use Math.abs
-    amount = Math.abs(raw.amount);
-  } else {
-    // Regular transactions: DEBIT is negative (money spent), CREDIT is positive (refund)
-    amount = raw.type === 'DEBIT' ? -raw.amount : raw.amount;
-  }
+  // Direction comes from `type`, never from the sign the API happens to send.
+  //
+  // Amex reports credits as negative (a refunded 6,75 EUR Amazon charge
+  // arrives as -6.75, matching what the statement shows) and purchases as
+  // positive. Passing a credit's sign through unchanged books a refund as a
+  // second purchase, doubling the apparent spend instead of offsetting it.
+  //
+  // A DEBIT is always money out and a CREDIT -- a refund, or a repayment from
+  // a bank account -- is always money in, so the magnitude is taken and the
+  // sign applied from the type. That holds whichever way Amex signs it.
+  const amount =
+    !isPayment && raw.type === 'DEBIT'
+      ? -Math.abs(raw.amount)
+      : Math.abs(raw.amount);
 
   // Extract payee name from extended_details or description
   let payeeName =

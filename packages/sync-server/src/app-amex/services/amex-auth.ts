@@ -65,6 +65,119 @@ async function findVisible(
 }
 
 /**
+ * Every object carrying an `account_token`, at any depth.
+ *
+ * Amex reshapes and re-versions these payloads (the servicing endpoints moved
+ * from v1 to a single v2 prefetch call), and matching exact paths means a
+ * silent "0 accounts" every time they do. The token is the one field that has
+ * stayed put, so the accounts are found by looking for it rather than by
+ * knowing the payload's shape.
+ */
+function collectAccountObjects(
+  value: unknown,
+  found: Array<Record<string, unknown>> = [],
+  depth = 0,
+): Array<Record<string, unknown>> {
+  if (depth > 8 || value == null || typeof value !== 'object') return found;
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectAccountObjects(item, found, depth + 1);
+    return found;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (typeof record.account_token === 'string' && record.account_token) {
+    found.push(record);
+  }
+  for (const nested of Object.values(record)) {
+    collectAccountObjects(nested, found, depth + 1);
+  }
+  return found;
+}
+
+function firstNumber(
+  record: Record<string, unknown>,
+  keys: string[],
+): number | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    const n = typeof value === 'string' ? Number(value) : value;
+    if (typeof n === 'number' && Number.isFinite(n)) return n;
+  }
+  return undefined;
+}
+
+function firstText(
+  record: Record<string, unknown>,
+  keys: string[],
+): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+/**
+ * Merge whatever account fields a payload happens to carry into `accounts`.
+ *
+ * Fields arrive spread across several responses, so this fills gaps rather
+ * than overwriting: a later payload without a balance must not erase one an
+ * earlier payload supplied.
+ */
+export function mergeDiscoveredAccounts(
+  accounts: AmexAccount[],
+  payload: unknown,
+): AmexAccount[] {
+  for (const record of collectAccountObjects(payload)) {
+    const token = record.account_token as string;
+    const displayNumber =
+      firstText(record, ['display_account_number', 'last_five', 'last_four']) ??
+      token.slice(-4);
+    const name = firstText(record, [
+      'product_name',
+      'display_name',
+      'embossed_name',
+    ]);
+    const balance = firstNumber(record, [
+      'statement_balance_amount',
+      'remaining_statement_balance_amount',
+      'total_balance_amount',
+      'total_balance',
+    ]);
+    const creditLimit = firstNumber(record, [
+      'total_credit_amount',
+      'credit_limit_amount',
+    ]);
+    const availableCredit = firstNumber(record, [
+      'available_credit_amount',
+      'available_amount',
+    ]);
+
+    const existing = accounts.find(a => a.account_token === token);
+    if (existing) {
+      if (name) existing.name = name;
+      if (displayNumber) existing.display_number = displayNumber;
+      if (balance !== undefined) existing.balance = balance;
+      if (creditLimit !== undefined) existing.credit_limit = creditLimit;
+      if (availableCredit !== undefined) {
+        existing.available_credit = availableCredit;
+      }
+    } else {
+      accounts.push({
+        account_token: token,
+        name: name || `Amex Card ****${displayNumber}`,
+        display_number: displayNumber,
+        balance,
+        credit_limit: creditLimit,
+        available_credit: availableCredit,
+      });
+    }
+  }
+  return accounts;
+}
+
+/**
  * Check if we have valid cached session cookies
  */
 export function hasValidSession(): boolean {
@@ -186,109 +299,23 @@ export async function performLogin(): Promise<AmexSession> {
         debug('api call: %s %d', url.split('?')[0], response.status());
       }
 
-      // Look for API responses that contain account tokens
-      if (
-        url.includes('/api/servicing/v1/financials/credit_limits') ||
-        url.includes('/api/servicing/v1/financials/balances') ||
-        url.includes('/api/servicing/v1/financials/transaction_summary') ||
-        url.includes('/api/servicing/v1/member')
-      ) {
+      // Any servicing payload may carry accounts; the shape and version keep
+      // moving, so match the family of endpoints and search for the token
+      // rather than pinning exact paths.
+      if (url.includes('/api/servicing/')) {
         try {
           const data = await response.json();
-          debug('Intercepted API response from %s: %o', url, data);
-
-          // Handle array responses (credit_limits, balances, transaction_summary)
-          if (Array.isArray(data)) {
-            for (const item of data) {
-              if (item.account_token) {
-                const existing = discoveredAccounts.find(
-                  a => a.account_token === item.account_token,
-                );
-                if (existing) {
-                  // Merge additional data into existing account
-                  if (item.total_credit_amount) {
-                    existing.credit_limit = item.total_credit_amount;
-                  }
-                  if (item.available_credit_amount) {
-                    existing.available_credit = item.available_credit_amount;
-                  }
-                  if (item.product_name) existing.name = item.product_name;
-                  if (item.display_account_number) {
-                    existing.display_number = item.display_account_number;
-                  }
-                  // Balance from /balances endpoint
-                  if (item.statement_balance_amount !== undefined) {
-                    existing.balance = item.statement_balance_amount;
-                  } else if (
-                    item.remaining_statement_balance_amount !== undefined
-                  ) {
-                    existing.balance = item.remaining_statement_balance_amount;
-                  }
-                  // transaction_summary provides embossed_name in accounts_total
-                  if (
-                    item.accounts_total &&
-                    Array.isArray(item.accounts_total)
-                  ) {
-                    const firstAccount = item.accounts_total[0];
-                    if (
-                      firstAccount?.embossed_name &&
-                      !existing.name.includes('Card')
-                    ) {
-                      // Only update if we don't already have a good name
-                    } else if (firstAccount?.embossed_name) {
-                      existing.name = firstAccount.embossed_name;
-                    }
-                    if (firstAccount?.display_account_number) {
-                      existing.display_number =
-                        firstAccount.display_account_number;
-                    }
-                  }
-                } else {
-                  // Create new account entry
-                  // Extract embossed name from transaction_summary if available
-                  let accountName = item.product_name || item.display_name;
-                  let displayNumber =
-                    item.display_account_number || item.account_token.slice(-4);
-
-                  if (
-                    item.accounts_total &&
-                    Array.isArray(item.accounts_total)
-                  ) {
-                    const firstAccount = item.accounts_total[0];
-                    if (firstAccount?.embossed_name) {
-                      accountName = firstAccount.embossed_name;
-                    }
-                    if (firstAccount?.display_account_number) {
-                      displayNumber = firstAccount.display_account_number;
-                    }
-                  }
-
-                  const balance =
-                    item.statement_balance_amount ??
-                    item.remaining_statement_balance_amount ??
-                    item.total_balance;
-                  discoveredAccounts.push({
-                    account_token: item.account_token,
-                    name: accountName || `Amex Card ****${displayNumber}`,
-                    display_number: displayNumber,
-                    // Balance comes from /balances endpoint as statement_balance_amount or remaining_statement_balance_amount
-                    balance,
-                    credit_limit: item.total_credit_amount,
-                    available_credit: item.available_credit_amount,
-                  });
-                  debug(
-                    'Discovered account: %s (name: %s, balance: %d, limit: %d)',
-                    item.account_token,
-                    accountName,
-                    balance,
-                    item.total_credit_amount,
-                  );
-                }
-              }
-            }
+          const before = discoveredAccounts.length;
+          mergeDiscoveredAccounts(discoveredAccounts, data);
+          if (discoveredAccounts.length !== before) {
+            debug(
+              'discovered %d account(s) from %s',
+              discoveredAccounts.length - before,
+              url.split('?')[0],
+            );
           }
         } catch {
-          // Ignore parse errors
+          // Not JSON, or a body we cannot read: nothing to discover here.
         }
       }
     });

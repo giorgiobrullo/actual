@@ -58,12 +58,21 @@ describe('normalizeTransaction', () => {
     expect(tx.amount).toBe(-50);
   });
 
-  it('keeps the posting date and preserves the charge date', () => {
+  it('dates a purchase when the card was used, not when it posted', () => {
+    // Amex shows this Lufthansa charge on the 26th; it posted on the 28th.
     const tx = normalizeTransaction(
       raw({ post_date: '2026-07-28', charge_date: '2026-07-26' }),
     );
-    expect(tx.date).toBe('2026-07-28');
+    expect(tx.date).toBe('2026-07-26');
     expect(tx.rawChargeDate).toBe('2026-07-26');
+  });
+
+  it('falls back to the posting date when there is no charge date', () => {
+    // Repayments are posted, never "charged".
+    const tx = normalizeTransaction(
+      raw({ post_date: '2026-07-06', charge_date: '', sub_type: 'payment' }),
+    );
+    expect(tx.date).toBe('2026-07-06');
   });
 
   it('prefers the merchant name over the raw description', () => {

@@ -254,6 +254,11 @@ export async function performLogin(): Promise<CartaYouSession> {
     await page.fill('#username', username);
     await page.fill('#password', password);
 
+    // Declared before submitting, since that is what makes the bank send the
+    // SMS. Doing it later (when the OTP page appears) would be too late: the
+    // code can arrive while the page is still navigating.
+    smsOtpService.beginAttempt();
+
     // Click login button
     debug('Clicking login button...');
     await page.click('[data-testid="loginButton"]');
@@ -343,10 +348,9 @@ export async function performLogin(): Promise<CartaYouSession> {
       if (otpInput) {
         debug('On OTP input page, waiting for SMS code...');
 
-        // Clear any old OTP codes before waiting for a new one
-        smsOtpService.clearOTP();
-
-        // Wait for OTP to arrive via webhook (timeout after 2 minutes)
+        // No clearing here: the code may already have arrived while the page
+        // was navigating. beginAttempt() (before the submit) is what scopes
+        // which codes are eligible.
         const otpCode = await smsOtpService.waitForOTP(120000, 1000);
 
         if (!otpCode) {

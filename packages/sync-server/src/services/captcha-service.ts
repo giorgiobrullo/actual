@@ -345,9 +345,55 @@ export async function injectCaptchaToken(
     debug('CAPTCHA token injected');
     return true;
   } catch (error) {
-    debug('Failed to inject CAPTCHA token: %o', error);
-    return false;
+    debug('Could not inject via page script: %o', error);
+    return injectTokenWithoutEval(page, token);
   }
+}
+
+/**
+ * Write the token straight into the response field, without running any page
+ * script.
+ *
+ * Sites that fingerprint automation monkeypatch `eval`, which is what
+ * `page.evaluate` relies on -- Amex does exactly this, so the code path above
+ * always throws there. Playwright's own actions run through a separate channel
+ * that the page cannot patch, so filling the field still works.
+ *
+ * This covers checkbox reCAPTCHA, where the form reads the token out of the
+ * response field on submit. Invisible variants additionally expect their
+ * completion callback to fire, which genuinely does need page script, so a
+ * failure there is reported rather than hidden.
+ */
+async function injectTokenWithoutEval(
+  page: Page,
+  token: string,
+): Promise<boolean> {
+  const selectors = [
+    '#g-recaptcha-response',
+    'textarea[name="g-recaptcha-response"]',
+    'input[name="g-recaptcha-response"]',
+  ];
+
+  for (const selector of selectors) {
+    const field = page.locator(selector).first();
+    try {
+      if ((await field.count()) === 0) continue;
+      // The response field is hidden by design, so it has to be filled without
+      // the usual visibility and enabled checks.
+      await field.fill(token, { force: true, timeout: 5000 });
+      debug('CAPTCHA token injected via %s (no page script)', selector);
+      return true;
+    } catch (error) {
+      debug(
+        'Could not fill %s: %s',
+        selector,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+
+  debug('Failed to inject CAPTCHA token: no writable response field found');
+  return false;
 }
 
 /**

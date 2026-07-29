@@ -97,9 +97,9 @@ export async function performLogin(): Promise<TFBankSession> {
 
   const client = new AvardaMyPages(TF_BANK_ITALY);
 
-  // Clear any stale OTP so we only accept a code that arrives after `validate`
-  // triggers a fresh SMS.
-  smsOtpService.clearOTP();
+  // Declared before `login`, since its `validate` step is what makes the bank
+  // send the SMS: only codes first seen from here on belong to this attempt.
+  smsOtpService.beginAttempt();
 
   try {
     await client.login({

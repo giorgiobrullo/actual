@@ -1,5 +1,5 @@
 import createDebug from 'debug';
-import type { BrowserContext } from 'playwright-core';
+import type { BrowserContext, ElementHandle, Page } from 'playwright-core';
 
 import type { AmexAccount } from '#app-amex/models/amex';
 import { AuthFailedError } from '#app-amex/utils/errors';
@@ -39,6 +39,30 @@ const SESSION_TTL_MS = 4 * 60 * 1000;
 
 // Login timeout - increased for slow proxy connections
 const LOGIN_TIMEOUT_MS = 60000;
+
+/**
+ * First element matching any of `selectors` that is actually visible.
+ *
+ * Amex renders several buttons matching the same selector on a page --
+ * responsive variants and at least one hidden form -- and `page.$` returns the
+ * first in DOM order, which is often not the one on screen. Clicking that fails
+ * even with `force`, which skips actionability checks but still cannot scroll
+ * an invisible element into view.
+ */
+async function findVisible(
+  page: Page,
+  selectors: string[],
+): Promise<ElementHandle<SVGElement | HTMLElement> | null> {
+  for (const selector of selectors) {
+    for (const handle of await page.$$(selector)) {
+      if (await handle.isVisible()) {
+        debug('Matched visible element: %s', selector);
+        return handle;
+      }
+    }
+  }
+  return null;
+}
 
 /**
  * Check if we have valid cached session cookies
@@ -845,8 +869,14 @@ export async function performLogin(): Promise<AmexSession> {
           }
         }
 
-        // Click continue button with force to bypass any overlapping elements
-        const continueButton = await page.$('button[type="submit"]');
+        // Must be the visible button: this page carries hidden submit buttons
+        // too, and clicking one of those aborts the login right at the point
+        // where the device would have been registered.
+        const continueButton = await findVisible(page, [
+          'button[data-testid="continue-button"]',
+          'button[type="submit"]',
+          'button:has-text("Continua")',
+        ]);
         if (continueButton) {
           debug('Clicking continue on trust device page...');
           await continueButton.click({ force: true });

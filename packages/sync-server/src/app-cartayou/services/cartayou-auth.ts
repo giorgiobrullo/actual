@@ -107,7 +107,12 @@ export async function performLogin(): Promise<CartaYouSession> {
   try {
     // Launch a stealth-configured Camoufox context (headful Firefox under a
     // managed virtual display, with humanized cursor movement).
-    context = await launchStealthContext({ locale: 'it-IT' });
+    // Persistent profile: a recognised device is challenged less, and may let
+    // the bank skip the SMS step entirely on later runs.
+    context = await launchStealthContext({
+      locale: 'it-IT',
+      profile: 'cartayou',
+    });
 
     const page = context.pages()[0] ?? (await context.newPage());
 

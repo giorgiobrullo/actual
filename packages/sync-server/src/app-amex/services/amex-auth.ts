@@ -23,10 +23,47 @@ const debug = createDebug('actual:amex:auth');
 // Amex Italy login URL
 const AMEX_LOGIN_URL = 'https://www.americanexpress.com/it-it/account/login';
 const AMEX_DASHBOARD_URL = 'https://global.americanexpress.com/dashboard';
-// The single servicing call the dashboard makes on a cold profile; it carries
-// the account tokens everything else is keyed by.
-const AMEX_PREFETCH_URL =
-  'https://global.americanexpress.com/api/servicing/v2/prefetch';
+/**
+ * Endpoints asked for accounts after login, in order, merging from each.
+ *
+ * v2/prefetch is the only servicing call the current dashboard makes, but the
+ * older v1 endpoints still answer and each carries a different slice of the
+ * data (limits, balances, naming), so all of them are tried rather than
+ * stopping at the first that returns something.
+ */
+const AMEX_DISCOVERY_URLS = [
+  'https://global.americanexpress.com/api/servicing/v2/prefetch',
+  'https://global.americanexpress.com/api/servicing/v1/member',
+  'https://global.americanexpress.com/api/servicing/v1/financials/credit_limits',
+  'https://global.americanexpress.com/api/servicing/v1/financials/balances',
+  'https://global.americanexpress.com/api/servicing/v1/financials/transaction_summary',
+];
+
+/**
+ * Names of any token-ish or account-ish keys in a payload.
+ *
+ * Discovery keys off `account_token`. When a payload has no accounts this says
+ * whether the field was renamed or simply absent, which is the difference
+ * between a one-line fix and a wrong guess.
+ */
+function describeKeys(
+  value: unknown,
+  seen = new Set<string>(),
+  depth = 0,
+): string[] {
+  if (depth > 8 || value == null || typeof value !== 'object') {
+    return [...seen];
+  }
+  if (Array.isArray(value)) {
+    for (const item of value.slice(0, 5)) describeKeys(item, seen, depth + 1);
+    return [...seen];
+  }
+  for (const [key, nested] of Object.entries(value)) {
+    if (/token|account|card/i.test(key)) seen.add(key);
+    describeKeys(nested, seen, depth + 1);
+  }
+  return [...seen];
+}
 
 // Session cache - stores browser context for reuse
 type AmexSession = {
@@ -1015,27 +1052,62 @@ export async function performLogin(): Promise<AmexSession> {
     // profile the dashboard renders from its own cache without re-fetching, so
     // the better the session persistence works the less there is to intercept.
     if (discoveredAccounts.length === 0) {
-      try {
-        const response = await fetch(AMEX_PREFETCH_URL, {
-          headers: {
-            Accept: 'application/json',
-            'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8',
-            Cookie: Object.entries(cookies)
-              .map(([name, value]) => `${name}=${value}`)
-              .join('; '),
-          },
-        });
-        debug('prefetch API responded %d', response.status);
-        if (response.ok) {
-          mergeDiscoveredAccounts(discoveredAccounts, await response.json());
-          debug('prefetch yielded %d account(s)', discoveredAccounts.length);
+      const cookieHeader = Object.entries(cookies)
+        .map(([name, value]) => `${name}=${value}`)
+        .join('; ');
+
+      for (const url of AMEX_DISCOVERY_URLS) {
+        const path = url.replace('https://global.americanexpress.com', '');
+        try {
+          const response = await fetch(url, {
+            headers: {
+              Accept: 'application/json',
+              'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8',
+              Cookie: cookieHeader,
+            },
+          });
+
+          if (!response.ok) {
+            debug('discovery %s -> %d', path, response.status);
+            continue;
+          }
+
+          const body = await response.text();
+          let payload: unknown;
+          try {
+            payload = JSON.parse(body);
+          } catch {
+            debug('discovery %s -> 200 but not JSON', path);
+            continue;
+          }
+
+          const before = discoveredAccounts.length;
+          mergeDiscoveredAccounts(discoveredAccounts, payload);
+          const gained = discoveredAccounts.length - before;
+          debug(
+            'discovery %s -> 200, %d bytes, +%d account(s)',
+            path,
+            body.length,
+            gained,
+          );
+          // Only worth saying when nothing was found: naming the fields that
+          // are present makes a renamed identifier obvious rather than
+          // invisible.
+          if (gained === 0) {
+            debug(
+              '  candidate keys: %s',
+              describeKeys(payload).join(', ') || '(none)',
+            );
+          }
+        } catch (e) {
+          debug(
+            'discovery %s failed: %s',
+            path,
+            e instanceof Error ? e.message : e,
+          );
         }
-      } catch (e) {
-        debug(
-          'prefetch request failed: %s',
-          e instanceof Error ? e.message : e,
-        );
       }
+      debug('direct discovery found %d account(s)', discoveredAccounts.length);
     }
 
     // Navigate to dashboard to trigger API calls for account discovery

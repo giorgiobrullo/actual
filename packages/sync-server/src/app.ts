@@ -200,6 +200,41 @@ function sendServerStartedMessage() {
   );
 }
 
+const OPENID_SETUP_ATTEMPTS = 6;
+
+async function configureOpenId(openIdConfig) {
+  for (let attempt = 1; attempt <= OPENID_SETUP_ATTEMPTS; attempt++) {
+    const isLastAttempt = attempt === OPENID_SETUP_ATTEMPTS;
+
+    try {
+      const result = await bootstrap({ openId: openIdConfig }, true);
+
+      if (!('error' in result) || !result.error) {
+        console.log('OpenID configured!');
+        return;
+      }
+
+      // Anything other than a failure to reach the provider is a real
+      // misconfiguration, so retrying it would only spam the log.
+      if (result.error !== 'configuration-error' || isLastAttempt) {
+        console.log(result.error);
+        return;
+      }
+    } catch (err) {
+      if (isLastAttempt) {
+        console.error(err);
+        return;
+      }
+    }
+
+    const delaySeconds = Math.min(2 ** attempt, 30);
+    console.log(
+      `OpenID provider not reachable yet (attempt ${attempt}/${OPENID_SETUP_ATTEMPTS}), retrying in ${delaySeconds}s`,
+    );
+    await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
+  }
+}
+
 export async function run() {
   const portVal = config.get('port');
   const port = typeof portVal === 'string' ? parseInt(portVal) : portVal;
@@ -210,16 +245,13 @@ export async function run() {
     openIdConfig?.issuer?.authorization_endpoint
   ) {
     console.log('OpenID configuration found. Preparing server to use it');
-    try {
-      const result = await bootstrap({ openId: openIdConfig }, true);
-      if ('error' in result && result.error) {
-        console.log(result.error);
-      } else {
-        console.log('OpenID configured!');
-      }
-    } catch (err) {
-      console.error(err);
-    }
+    // Deliberately not awaited: the identity provider is often started
+    // alongside us in a container stack and answers discovery with a 404 until
+    // it is ready, which would otherwise leave OpenID unconfigured until the
+    // next restart. Logins re-run discovery on every attempt and existing
+    // config in the database stays valid, so retrying in the background costs
+    // nothing and keeps the server listening immediately.
+    void configureOpenId(openIdConfig);
   }
 
   if (config.get('https.key') && config.get('https.cert')) {

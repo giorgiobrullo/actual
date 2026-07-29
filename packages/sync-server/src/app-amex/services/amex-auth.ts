@@ -878,10 +878,16 @@ export async function performLogin(): Promise<AmexSession> {
       currentUrl = page.url();
       debug('Current URL after OTP: %s', currentUrl);
 
-      // Check for OTP error message
-      const otpError = await page.$(
-        '[data-testid="error-message"], .error-message, [role="alert"]',
-      );
+      // Only look for an error while still on the verification page. Reaching
+      // the dashboard means the code was accepted, and `[role="alert"]` also
+      // matches Amex's dismissible marketing banners there -- which otherwise
+      // fails a login that has already succeeded.
+      const stillVerifying = currentUrl.includes('two-step-verification');
+      const otpError = stillVerifying
+        ? await page.$(
+            '[data-testid="error-message"], .error-message, [role="alert"]',
+          )
+        : null;
       if (otpError) {
         const errorText = await otpError.textContent();
         debug('OTP error detected: %s', errorText);

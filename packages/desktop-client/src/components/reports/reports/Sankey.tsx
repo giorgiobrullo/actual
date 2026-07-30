@@ -11,6 +11,7 @@ import {
   SvgList,
   SvgRefresh,
 } from '@actual-app/components/icons/v1';
+import { SvgDownloadThickBottom } from '@actual-app/components/icons/v2';
 import { Menu } from '@actual-app/components/menu';
 import { ModeButton } from '@actual-app/components/mode-button';
 import { Paragraph } from '@actual-app/components/paragraph';
@@ -40,6 +41,7 @@ import { LoadingIndicator } from '#components/reports/LoadingIndicator';
 import { calculateTimeRange } from '#components/reports/reportRanges';
 import {
   buildSankeyData,
+  buildSankeyDataWithStats,
   createBaseGraphSpreadsheet,
   GRAPH_LAYER_ORDER,
   GraphLayers,
@@ -625,6 +627,143 @@ function SankeyInner({ widget }: SankeyInnerProps) {
     layerTo,
   ]);
 
+  // ---- image export ----------------------------------------------------
+  // Renders the graph a second time, offscreen, with every category shown
+  // (no top-N folding, no window-height clamp) at whatever height the
+  // busiest column needs, then rasterizes that SVG to a 2x PNG.
+  const [exportRequest, setExportRequest] = useState<{
+    data: SankeyData;
+    width: number;
+    height: number;
+  } | null>(null);
+  const exportContainerRef = useRef<HTMLDivElement | null>(null);
+
+  function onExportImage() {
+    if (!displayBaseGraph || exportRequest) {
+      return;
+    }
+    const { data, maxNodesPerLayer } = buildSankeyDataWithStats(
+      displayBaseGraph,
+      1e5, // 'All' — the export exists to show what the screen cannot fit
+      groupedCategories,
+      categorySort,
+      layerFrom,
+      layerTo,
+    );
+    if (!data.links.length) {
+      return;
+    }
+    // ~34px per labelled node (two text lines) plus chart margins.
+    const height = Math.max(700, maxNodesPerLayer * 34 + 80);
+    setExportRequest({ data, width: 2000, height });
+  }
+
+  useEffect(() => {
+    if (!exportRequest) {
+      return;
+    }
+    // Give the offscreen chart a beat to lay out before serializing it.
+    const timer = setTimeout(async () => {
+      try {
+        const svg = exportContainerRef.current?.querySelector('svg');
+        if (!svg) {
+          return;
+        }
+        const clone = svg.cloneNode(true) as SVGSVGElement;
+        clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        clone.setAttribute('width', String(exportRequest.width));
+        clone.setAttribute('height', String(exportRequest.height));
+
+        // Theme colors are CSS variables, which a standalone SVG rendered
+        // inside an <img> cannot resolve — every fill would fall back to
+        // black. Walk the live tree in parallel with the clone and bake the
+        // computed values in as inline attributes.
+        const liveEls = svg.querySelectorAll<SVGElement>('*');
+        const cloneEls = clone.querySelectorAll<SVGElement>('*');
+        liveEls.forEach((liveEl, i) => {
+          const cloneEl = cloneEls[i];
+          if (!cloneEl) {
+            return;
+          }
+          const cs = getComputedStyle(liveEl);
+          for (const prop of [
+            'fill',
+            'stroke',
+            'stroke-opacity',
+            'stroke-width',
+            'opacity',
+            'font-size',
+            'font-family',
+          ]) {
+            const value = cs.getPropertyValue(prop);
+            if (value) {
+              cloneEl.setAttribute(prop, value);
+            }
+          }
+        });
+
+        const background = getComputedStyle(document.documentElement)
+          .getPropertyValue('--color-tableBackground')
+          .trim();
+
+        const xml = new XMLSerializer().serializeToString(clone);
+        const svgUrl = URL.createObjectURL(
+          new Blob([xml], { type: 'image/svg+xml;charset=utf-8' }),
+        );
+        try {
+          const img = new Image();
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = () => reject(new Error('SVG rasterization failed'));
+            img.src = svgUrl;
+          });
+
+          const scale = 2;
+          const canvas = document.createElement('canvas');
+          canvas.width = exportRequest.width * scale;
+          canvas.height = exportRequest.height * scale;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            return;
+          }
+          ctx.fillStyle = background || '#1f2735';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.scale(scale, scale);
+          ctx.drawImage(img, 0, 0, exportRequest.width, exportRequest.height);
+
+          const pngBlob = await new Promise<Blob | null>(resolve =>
+            canvas.toBlob(resolve, 'image/png'),
+          );
+          if (!pngBlob) {
+            return;
+          }
+          const pngUrl = URL.createObjectURL(pngBlob);
+          const link = document.createElement('a');
+          link.href = pngUrl;
+          link.download = `sankey-${start}-to-${end}.png`;
+          link.click();
+          URL.revokeObjectURL(pngUrl);
+        } finally {
+          URL.revokeObjectURL(svgUrl);
+        }
+      } catch (error) {
+        dispatch(
+          addNotification({
+            notification: {
+              type: 'error',
+              message: t('Image export failed: {{error}}', {
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            },
+          }),
+        );
+      } finally {
+        setExportRequest(null);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [exportRequest, start, end, dispatch, t]);
+
   useEffect(() => {
     async function run() {
       const earliestTransaction = await send('get-earliest-transaction');
@@ -842,6 +981,17 @@ function SankeyInner({ widget }: SankeyInnerProps) {
               value={categorySort}
               onChange={setCategorySort}
             />
+            <Button
+              variant="bare"
+              isDisabled={!displayData || exportRequest !== null}
+              onPress={onExportImage}
+              aria-label={t('Export image with all categories')}
+            >
+              <SvgDownloadThickBottom style={{ width: 12, height: 12 }} />
+              <span style={{ marginLeft: 5 }}>
+                {exportRequest ? t('Exporting…') : t('Export image')}
+              </span>
+            </Button>
             <View
               style={{
                 width: 1,
@@ -1033,6 +1183,28 @@ function SankeyInner({ widget }: SankeyInnerProps) {
           </View>
         </View>
       </View>
+      {exportRequest && (
+        <div
+          ref={exportContainerRef}
+          aria-hidden
+          style={{
+            position: 'fixed',
+            left: -21000,
+            top: 0,
+            width: exportRequest.width,
+            height: exportRequest.height,
+            pointerEvents: 'none',
+          }}
+        >
+          <SankeyGraph
+            style={{ width: '100%', height: '100%' }}
+            data={exportRequest.data}
+            showTooltip={false}
+            showPercentages={showPercentages}
+            animationDisabled
+          />
+        </div>
+      )}
     </Page>
   );
 }

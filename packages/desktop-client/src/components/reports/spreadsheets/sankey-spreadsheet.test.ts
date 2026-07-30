@@ -6,6 +6,7 @@ import {
   addPercentageLabels,
   addValueToLink,
   buildSankeyData,
+  buildSankeyDataWithStats,
   cleanUpNodes,
   convertToSankeyData,
   createBudgetGraph,
@@ -674,6 +675,102 @@ describe('sankey-spreadsheet', () => {
       expect(graph.has('unspent')).toBe(false);
       expect(graph.has('from_balance')).toBe(false);
     });
+  });
+
+  describe('per-group representation when folding into Other', () => {
+    function makeTwoGroupGraph(): Graph {
+      const graph: Graph = new Map();
+      addNode(graph, 'acct', GraphLayers.Account, 'Income');
+      addNode(graph, 'g1', GraphLayers.CategoryGroup, 'Big Group');
+      addNode(graph, 'g2', GraphLayers.CategoryGroup, 'Small Group');
+      addNode(graph, 'a', GraphLayers.Category, 'Cat A');
+      addNode(graph, 'b', GraphLayers.Category, 'Cat B');
+      addNode(graph, 'c', GraphLayers.Category, 'Cat C');
+      addNode(graph, 'd', GraphLayers.Category, 'Cat D');
+      addNode(graph, 'e', GraphLayers.Category, 'Cat E');
+      addNode(graph, 'f', GraphLayers.Category, 'Cat F');
+      addValueToLink(graph, 'acct', 'g1', 175);
+      addValueToLink(graph, 'acct', 'g2', 60);
+      addValueToLink(graph, 'g1', 'a', 100);
+      addValueToLink(graph, 'g1', 'b', 50);
+      addValueToLink(graph, 'g1', 'c', 25);
+      addValueToLink(graph, 'g2', 'd', 30);
+      addValueToLink(graph, 'g2', 'e', 20);
+      addValueToLink(graph, 'g2', 'f', 10);
+      return graph;
+    }
+
+    it('keeps every group\'s largest category before giving a group a second slot', () => {
+      const data = buildSankeyData(
+        makeTwoGroupGraph(),
+        4,
+        [],
+        'per-group',
+        GraphLayers.Account,
+        GraphLayers.Category,
+      );
+
+      const names = data.nodes.map(n => n.name);
+      // Cat D (30) is smaller than Cat B (50), but it is Small Group's largest
+      // member — it must survive while Cat B folds, or the group renders as
+      // nothing but Other.
+      expect(names).toContain('Cat A');
+      expect(names).toContain('Cat D');
+      expect(names).not.toContain('Cat B');
+      expect(names).not.toContain('Cat C');
+      const otherCount = data.nodes.filter(
+        n => n.key.endsWith('__OTHER_BUCKET') && n.name === 'Other',
+      ).length;
+      expect(otherCount).toBe(2);
+    });
+
+    it('still folds group maxima when the budget cannot hold one per group', () => {
+      const data = buildSankeyData(
+        makeTwoGroupGraph(),
+        2,
+        [],
+        'per-group',
+        GraphLayers.Account,
+        GraphLayers.Category,
+      );
+      // Degenerate budget: it must still terminate and respect the cap.
+      const categoryNodes = data.nodes.filter(
+        n => n.name.startsWith('Cat ') || n.name === 'Other',
+      );
+      expect(categoryNodes.length).toBeLessThanOrEqual(2 + 1);
+    });
+  });
+
+  describe('buildSankeyDataWithStats', () => {
+    it('reports how many labelled nodes the busiest layer holds', () => {
+      const { data, maxNodesPerLayer } = buildSankeyDataWithStats(
+        makeStatsGraph(),
+        1e5,
+        [],
+        'per-group',
+        GraphLayers.Account,
+        GraphLayers.Category,
+      );
+      expect(data.nodes.length).toBeGreaterThan(0);
+      // 3 categories is the widest layer (1 account, 2 groups, 3 categories)
+      expect(maxNodesPerLayer).toBe(3);
+    });
+
+    function makeStatsGraph(): Graph {
+      const graph: Graph = new Map();
+      addNode(graph, 'acct', GraphLayers.Account, 'Income');
+      addNode(graph, 'g1', GraphLayers.CategoryGroup, 'G1');
+      addNode(graph, 'g2', GraphLayers.CategoryGroup, 'G2');
+      addNode(graph, 'a', GraphLayers.Category, 'A');
+      addNode(graph, 'b', GraphLayers.Category, 'B');
+      addNode(graph, 'c', GraphLayers.Category, 'C');
+      addValueToLink(graph, 'acct', 'g1', 30);
+      addValueToLink(graph, 'acct', 'g2', 10);
+      addValueToLink(graph, 'g1', 'a', 20);
+      addValueToLink(graph, 'g1', 'b', 10);
+      addValueToLink(graph, 'g2', 'c', 10);
+      return graph;
+    }
   });
 
   describe('sortGraph', () => {

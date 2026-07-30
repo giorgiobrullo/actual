@@ -215,6 +215,28 @@ export function buildSankeyData(
   layerFrom: GraphLayers,
   layerTo: GraphLayers,
 ): SankeyData {
+  return buildSankeyDataWithStats(
+    baseGraph,
+    topNcategories,
+    categories,
+    categorySort,
+    layerFrom,
+    layerTo,
+  ).data;
+}
+
+// Same pipeline as buildSankeyData, but also reports how many labelled nodes
+// the busiest column holds — which is what decides how tall a rendering must
+// be for every label to fit. Used by the image export, which is not bound by
+// the window height the way the on-screen chart is.
+export function buildSankeyDataWithStats(
+  baseGraph: Graph,
+  topNcategories: number,
+  categories: CategoryGroupEntity[],
+  categorySort: SortMode,
+  layerFrom: GraphLayers,
+  layerTo: GraphLayers,
+): { data: SankeyData; maxNodesPerLayer: number } {
   const graph = cloneGraph(baseGraph);
 
   const toolTipInfoMap = groupOtherCategories(
@@ -229,7 +251,19 @@ export function buildSankeyData(
   addHiddenNodes(sortedGraph);
   filterGraphByLayers(sortedGraph, layerFrom, layerTo);
 
-  return convertToSankeyData(sortedGraph, toolTipInfoMap);
+  const labelledPerLayer = new Map<GraphLayers, number>();
+  for (const [, node] of sortedGraph) {
+    if (!node.name && !node.labelKey) {
+      continue; // hidden layout helpers render no label
+    }
+    labelledPerLayer.set(node.type, (labelledPerLayer.get(node.type) ?? 0) + 1);
+  }
+  const maxNodesPerLayer = Math.max(0, ...labelledPerLayer.values());
+
+  return {
+    data: convertToSankeyData(sortedGraph, toolTipInfoMap),
+    maxNodesPerLayer,
+  };
 }
 
 export function createBudgetSpreadsheet(
@@ -969,16 +1003,54 @@ function groupOtherCategories(
     );
   }
 
+  // The node a category or payee gets folded under: the category's group, or
+  // the income category a payee feeds. Mirrors the routing in moveToOther.
+  function anchorOf(key: NodeKey): NodeKey | undefined {
+    const node = graph.get(key);
+    if (!node) return undefined;
+    if (node.type === GraphLayers.Category) {
+      return getCategoryGroup(graph, key)?.[0];
+    }
+    if (node.type === GraphLayers.IncomePayee) {
+      return Array.from(node.to.keys()).find(
+        k => graph.get(k)?.type === GraphLayers.IncomeCategory,
+      );
+    }
+    return undefined;
+  }
+
   Object.entries(GraphLayers).forEach(([_, layer]) => {
     let ordinaryNodes = nodesInLayer(graph, layer).filter(isGroupableNode);
     let otherNodes = nodesInLayer(graph, layer).filter(s =>
       s.endsWith(SpecialNodeKeys.OtherSuffix),
     );
 
+    // Every group should keep its largest member visible before any group gets
+    // a second slot. Without this, the top-N budget goes entirely to the
+    // biggest groups and a small group renders as nothing but "Other". The
+    // set is computed once per layer: values do not change while folding, and
+    // a protected node is only folded by the fallback pass below.
+    const anchorMax = new Map<NodeKey, { key: NodeKey; value: number }>();
+    for (const nodeKey of ordinaryNodes) {
+      const anchor = anchorOf(nodeKey);
+      if (anchor === undefined) continue;
+      const value = getNodeValue(graph, nodeKey);
+      const current = anchorMax.get(anchor);
+      if (!current || value > current.value) {
+        anchorMax.set(anchor, { key: nodeKey, value });
+      }
+    }
+    const protectedKeys = new Set(
+      Array.from(anchorMax.values(), entry => entry.key),
+    );
+
     while (ordinaryNodes.length + otherNodes.length > topN) {
       let minValue = Infinity;
       let nodeToDelete: NodeKey | undefined;
-      for (const nodeKey of ordinaryNodes) {
+      const unprotected = ordinaryNodes.filter(k => !protectedKeys.has(k));
+      // Fall back to folding protected nodes only when nothing else is left.
+      const candidates = unprotected.length > 0 ? unprotected : ordinaryNodes;
+      for (const nodeKey of candidates) {
         const nodeValue = getNodeValue(graph, nodeKey);
         if (nodeValue < minValue) {
           minValue = nodeValue;

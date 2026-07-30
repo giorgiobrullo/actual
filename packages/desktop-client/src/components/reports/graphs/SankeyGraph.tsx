@@ -165,6 +165,11 @@ function SankeyNode({
     </text>
   );
 
+  // A node a few pixels tall cannot carry two lines of text: adjacent labels
+  // overprint each other and the column turns to soup. Keep the name, drop
+  // the amount — it is still in the tooltip.
+  const showValueLine = height >= 8;
+
   return (
     <Layer
       className={
@@ -177,15 +182,16 @@ function SankeyNode({
     >
       <Rectangle x={x} y={y} width={width} height={height} fill={fillColor} />
       {renderText(payload.name || '', height / 2)}
-      {renderText(
-        showPercentages && payload.percentageLabel
-          ? payload.percentageLabel
-          : format(payload.value, 'financial'),
-        height / 2 + 13,
-        11,
-        0.5,
-        privacyMode ? t('Redacted Script') : undefined,
-      )}
+      {showValueLine &&
+        renderText(
+          showPercentages && payload.percentageLabel
+            ? payload.percentageLabel
+            : format(payload.value, 'financial'),
+          height / 2 + 13,
+          11,
+          0.5,
+          privacyMode ? t('Redacted Script') : undefined,
+        )}
     </Layer>
   );
 }
@@ -195,12 +201,17 @@ type SankeyGraphProps = {
   data: SankeyData;
   showTooltip?: boolean;
   showPercentages?: boolean;
+  // Render fully visible from the first frame. The load animation gates on an
+  // IntersectionObserver, which never fires for the offscreen copy the image
+  // export draws — without this, the exported PNG would be blank.
+  animationDisabled?: boolean;
 };
 export function SankeyGraph({
   style,
   data,
   showTooltip = true,
   showPercentages = false,
+  animationDisabled = false,
 }: SankeyGraphProps) {
   const privacyMode = usePrivacyMode();
   const format = useFormat();
@@ -213,7 +224,7 @@ export function SankeyGraph({
   // useRef-based observer would attach before the element exists.
   const [viewportEl, setViewportEl] = useState<HTMLDivElement | null>(null);
   const [phase, setPhase] = useState<'waiting' | 'animating' | 'done'>(
-    'waiting',
+    animationDisabled ? 'done' : 'waiting',
   );
 
   useEffect(() => {

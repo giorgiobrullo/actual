@@ -27,7 +27,6 @@ import type {
   SankeyWidget,
   TimeFrame,
 } from '@actual-app/core/types/models';
-import { debounce } from 'es-toolkit/compat';
 import type { TFunction } from 'i18next';
 import type { SankeyData } from 'recharts/types/chart/Sankey';
 
@@ -58,7 +57,6 @@ import { useDashboardWidget } from '#hooks/useDashboardWidget';
 import { useFormatList } from '#hooks/useFormatList';
 import { useLocale } from '#hooks/useLocale';
 import { useNavigate } from '#hooks/useNavigate';
-import { useResizeObserver } from '#hooks/useResizeObserver';
 import { useRuleConditionFilters } from '#hooks/useRuleConditionFilters';
 import { addNotification } from '#notifications/notificationsSlice';
 import { useDispatch } from '#redux';
@@ -383,6 +381,8 @@ type OptionsButtonProps = {
   onToggleGroupAccounts: () => void;
   showTransfers: boolean;
   onToggleShowTransfers: () => void;
+  mergeUnspent: boolean;
+  onToggleMergeUnspent: () => void;
 };
 
 function OptionsButton({
@@ -392,6 +392,8 @@ function OptionsButton({
   onToggleGroupAccounts,
   showTransfers,
   onToggleShowTransfers,
+  mergeUnspent,
+  onToggleMergeUnspent,
 }: OptionsButtonProps) {
   const { t } = useTranslation();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -412,6 +414,7 @@ function OptionsButton({
             if (item === 'show-percentages') onTogglePercentages();
             if (item === 'group-accounts') onToggleGroupAccounts();
             if (item === 'show-transfers') onToggleShowTransfers();
+            if (item === 'merge-unspent') onToggleMergeUnspent();
           }}
           items={[
             {
@@ -428,6 +431,11 @@ function OptionsButton({
               name: 'show-transfers',
               text: t('Show transfers in Spent view'),
               toggle: showTransfers,
+            },
+            {
+              name: 'merge-unspent',
+              text: t('Merge unspent into savings'),
+              toggle: mergeUnspent,
             },
           ]}
         />
@@ -484,32 +492,10 @@ function SankeyInner({ widget }: SankeyInnerProps) {
     widget?.meta?.topNcategories ?? 15,
   );
 
-  const [cardHeight, setCardHeight] = useState(0);
-  const throttledSetCardHeight = useMemo(
-    () =>
-      debounce(
-        (height: number) => {
-          setCardHeight(prev => (prev === height ? prev : height));
-        },
-        200,
-        { leading: true, trailing: true, maxWait: 200 },
-      ),
-    [],
-  );
-
-  useEffect(() => {
-    return () => {
-      throttledSetCardHeight.cancel();
-    };
-  }, [throttledSetCardHeight]);
-
-  const containerRef = useResizeObserver<HTMLDivElement>(rect => {
-    throttledSetCardHeight(rect.height);
-  });
-
-  const heightBasedTopN = topNNodes(cardHeight);
-
-  const topN = Math.min(topNcategories, heightBasedTopN);
+  // The full-page report honours the selector exactly: choosing 'All' means
+  // all, even when it gets tall. The label renderer degrades gracefully when
+  // space runs out, and dashboard cards keep their own height-based clamp.
+  const topN = topNcategories;
 
   const [categorySort, setCategorySort] = useState<
     'per-group' | 'global' | 'budget-order'
@@ -523,6 +509,9 @@ function SankeyInner({ widget }: SankeyInnerProps) {
   );
   const [showTransfers, setShowTransfers] = useState(
     widget?.meta?.showTransfers ?? false,
+  );
+  const [mergeUnspent, setMergeUnspent] = useState(
+    widget?.meta?.mergeUnspent ?? false,
   );
 
   const [layerRange, setLayerRange] = useState<LayerRange>(() =>
@@ -645,6 +634,7 @@ function SankeyInner({ widget }: SankeyInnerProps) {
       categorySort,
       layerFrom,
       layerTo,
+      mergeUnspent,
     );
   }, [
     displayBaseGraph,
@@ -653,6 +643,7 @@ function SankeyInner({ widget }: SankeyInnerProps) {
     categorySort,
     layerFrom,
     layerTo,
+    mergeUnspent,
   ]);
 
   // ---- image export ----------------------------------------------------
@@ -670,13 +661,16 @@ function SankeyInner({ widget }: SankeyInnerProps) {
     if (!displayBaseGraph || exportRequest) {
       return;
     }
+    // The export is the current view unclamped by the window: same top-N,
+    // sort, layers and options, at whatever height the busiest column needs.
     const { data, maxNodesPerLayer } = buildSankeyDataWithStats(
       displayBaseGraph,
-      1e5, // 'All' — the export exists to show what the screen cannot fit
+      topN,
       groupedCategories,
       categorySort,
       layerFrom,
       layerTo,
+      mergeUnspent,
     );
     if (!data.links.length) {
       return;
@@ -870,6 +864,7 @@ function SankeyInner({ widget }: SankeyInnerProps) {
               mode: timeFrameMode,
             },
             groupAccounts,
+            mergeUnspent,
           },
         },
       },
@@ -1048,6 +1043,8 @@ function SankeyInner({ widget }: SankeyInnerProps) {
             onToggleGroupAccounts={() => setGroupAccounts(v => !v)}
             showTransfers={showTransfers}
             onToggleShowTransfers={() => setShowTransfers(v => !v)}
+            mergeUnspent={mergeUnspent}
+            onToggleMergeUnspent={() => setMergeUnspent(v => !v)}
           />
         </View>
         {widget && (
@@ -1099,7 +1096,6 @@ function SankeyInner({ widget }: SankeyInnerProps) {
                 displayData.links &&
                 displayData.links.length > 0 ? (
                   <View
-                    ref={containerRef}
                     style={{
                       flexDirection: 'column',
                       flexGrow: 1,

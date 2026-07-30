@@ -111,6 +111,8 @@ const SpecialNodeKeys = {
   FromPrevMonth: 'from_previous_month',
   AvailableIncome: 'available_income',
   AllAccounts: 'all_income',
+  Unspent: 'unspent',
+  FromBalance: 'from_balance',
   OtherSuffix: '__OTHER_BUCKET',
   HiddenSuffix: '__HIDDEN',
   NegativeSuffix: '__NEGATIVE',
@@ -833,7 +835,58 @@ export function createTransactionsGraph(categoryData: CategoryEntry[]): Graph {
       }
     }
   });
+
+  balanceAccountNodes(graph);
+
   return graph;
+}
+
+// Income that was not spent in the period used to vanish: the account node's
+// incoming links exceeded its outgoing ones and the renderer silently absorbed
+// the difference, so money kept as liquidity appeared nowhere in the flow.
+// Give each account node an explicit remainder: a gray "Unspent" leaf when it
+// received more than it spent, and a gray "From balance" source when spending
+// exceeded income (drawn from the balance the account already had).
+function balanceAccountNodes(graph: Graph) {
+  const accountKeys = nodesInLayer(graph, GraphLayers.Account);
+
+  for (const accountKey of accountKeys) {
+    const accountNode = graph.get(accountKey);
+    if (!accountNode) continue;
+
+    let inflow = 0;
+    for (const [, data] of graph) {
+      inflow += data.to.get(accountKey) ?? 0;
+    }
+    let outflow = 0;
+    for (const [, value] of accountNode.to) {
+      outflow += value;
+    }
+
+    const remainder = inflow - outflow;
+    if (remainder > 0) {
+      addNodeWithLabel(
+        graph,
+        SpecialNodeKeys.Unspent,
+        GraphLayers.CategoryGroup,
+        'Unspent',
+      );
+      addValueToLink(graph, accountKey, SpecialNodeKeys.Unspent, remainder);
+    } else if (remainder < 0) {
+      addNodeWithLabel(
+        graph,
+        SpecialNodeKeys.FromBalance,
+        GraphLayers.IncomeCategory,
+        'From balance',
+      );
+      addValueToLink(
+        graph,
+        SpecialNodeKeys.FromBalance,
+        accountKey,
+        Math.abs(remainder),
+      );
+    }
+  }
 }
 
 export function addNode(
@@ -1220,6 +1273,8 @@ export function sortGraph(
   moveNodeToEnd(sortedEntries, SpecialNodeKeys.LastMonthOverspent);
   moveNodeToEnd(sortedEntries, SpecialNodeKeys.ForNextMonth);
   moveNodeToEnd(sortedEntries, SpecialNodeKeys.FromPrevMonth);
+  moveNodeToEnd(sortedEntries, SpecialNodeKeys.Unspent);
+  moveNodeToEnd(sortedEntries, SpecialNodeKeys.FromBalance);
   return new Map(sortedEntries);
 }
 
@@ -1317,6 +1372,8 @@ function addColors(graph: Graph) {
   setColor(graph, SpecialNodeKeys.LastMonthOverspent, theme.toBudgetNegative);
   setColor(graph, SpecialNodeKeys.FromPrevMonth, theme.reportsGray);
   setColor(graph, SpecialNodeKeys.ForNextMonth, theme.reportsGray);
+  setColor(graph, SpecialNodeKeys.Unspent, theme.reportsGray);
+  setColor(graph, SpecialNodeKeys.FromBalance, theme.reportsGray);
   setColor(graph, SpecialNodeKeys.Budgeted, theme.reportsBlue);
   setColor(graph, SpecialNodeKeys.AvailableIncome, theme.reportsBlue);
   setColor(graph, SpecialNodeKeys.AllAccounts, theme.reportsBlue);

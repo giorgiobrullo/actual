@@ -570,6 +570,110 @@ describe('sankey-spreadsheet', () => {
       expect(graph.has('c_salary')).toBe(true);
       expect(graph.has('p_employer')).toBe(true);
     });
+
+    it('routes unspent income into an explicit Unspent node', () => {
+      const categoryData = [
+        {
+          categoryGroup: 'Income',
+          categoryGroupId: 'g_income',
+          category: 'Salary',
+          categoryId: 'c_salary',
+          value: 5000,
+          isIncome: true,
+          isNegative: false,
+          accountName: 'Checking',
+          accountId: 'a_checking',
+          payeeName: 'Employer',
+          payeeId: 'p_employer',
+        },
+        {
+          categoryGroup: 'Food',
+          categoryGroupId: 'g_food',
+          category: 'Groceries',
+          categoryId: 'c_groceries',
+          value: 100,
+          isIncome: false,
+          isNegative: true,
+          accountName: 'Checking',
+          accountId: 'a_checking',
+        },
+      ];
+
+      const graph = createTransactionsGraph(categoryData);
+
+      expect(graph.has('unspent')).toBe(true);
+      expect(graph.get('a_checking')?.to.get('unspent')).toBe(4900);
+      expect(graph.has('from_balance')).toBe(false);
+    });
+
+    it('funds overspending from an explicit From balance node', () => {
+      const categoryData = [
+        {
+          categoryGroup: 'Income',
+          categoryGroupId: 'g_income',
+          category: 'Salary',
+          categoryId: 'c_salary',
+          value: 100,
+          isIncome: true,
+          isNegative: false,
+          accountName: 'Checking',
+          accountId: 'a_checking',
+          payeeName: 'Employer',
+          payeeId: 'p_employer',
+        },
+        {
+          categoryGroup: 'Food',
+          categoryGroupId: 'g_food',
+          category: 'Groceries',
+          categoryId: 'c_groceries',
+          value: 5000,
+          isIncome: false,
+          isNegative: true,
+          accountName: 'Checking',
+          accountId: 'a_checking',
+        },
+      ];
+
+      const graph = createTransactionsGraph(categoryData);
+
+      expect(graph.has('from_balance')).toBe(true);
+      expect(graph.get('from_balance')?.to.get('a_checking')).toBe(4900);
+      expect(graph.has('unspent')).toBe(false);
+    });
+
+    it('adds no balancing node when income equals spending', () => {
+      const categoryData = [
+        {
+          categoryGroup: 'Income',
+          categoryGroupId: 'g_income',
+          category: 'Salary',
+          categoryId: 'c_salary',
+          value: 100,
+          isIncome: true,
+          isNegative: false,
+          accountName: 'Checking',
+          accountId: 'a_checking',
+          payeeName: 'Employer',
+          payeeId: 'p_employer',
+        },
+        {
+          categoryGroup: 'Food',
+          categoryGroupId: 'g_food',
+          category: 'Groceries',
+          categoryId: 'c_groceries',
+          value: 100,
+          isIncome: false,
+          isNegative: true,
+          accountName: 'Checking',
+          accountId: 'a_checking',
+        },
+      ];
+
+      const graph = createTransactionsGraph(categoryData);
+
+      expect(graph.has('unspent')).toBe(false);
+      expect(graph.has('from_balance')).toBe(false);
+    });
   });
 
   describe('sortGraph', () => {

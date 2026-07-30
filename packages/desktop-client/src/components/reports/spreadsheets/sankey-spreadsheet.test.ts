@@ -23,6 +23,7 @@ import {
   hasChild,
   hasParent,
   isGraphLayer,
+  mergeUnspentIntoSavings,
   moveNodeToEnd,
   moveNodeToStart,
   nodesInLayer,
@@ -801,7 +802,7 @@ describe('sankey-spreadsheet', () => {
       return graph;
     }
 
-    it('keeps every group\'s largest category before giving a group a second slot', () => {
+    it("keeps every group's largest category before giving a group a second slot", () => {
       const data = buildSankeyData(
         makeTwoGroupGraph(),
         4,
@@ -872,6 +873,51 @@ describe('sankey-spreadsheet', () => {
       addValueToLink(graph, 'g2', 'c', 10);
       return graph;
     }
+  });
+
+  describe('mergeUnspentIntoSavings', () => {
+    function makeGraphWithUnspent(groupName: string): Graph {
+      const graph: Graph = new Map();
+      addNode(graph, 'acct', GraphLayers.Account, 'Income');
+      addNode(graph, 'g_sav', GraphLayers.CategoryGroup, groupName);
+      addNode(graph, 'c_sav', GraphLayers.Category, 'Savings');
+      addValueToLink(graph, 'acct', 'g_sav', 100);
+      addValueToLink(graph, 'g_sav', 'c_sav', 100);
+      // the balancing node createTransactionsGraph would have added
+      addNode(graph, 'unspent', GraphLayers.CategoryGroup, 'Unspent');
+      addValueToLink(graph, 'acct', 'unspent', 40);
+      return graph;
+    }
+
+    it('reroutes the unspent flow under the savings group as a child', () => {
+      const graph = makeGraphWithUnspent('Investments and Savings');
+      mergeUnspentIntoSavings(graph);
+
+      expect(graph.has('unspent')).toBe(false);
+      expect(graph.get('acct')?.to.get('g_sav')).toBe(140);
+      expect(graph.get('g_sav')?.to.get('unspent_child')).toBe(40);
+      expect(graph.get('unspent_child')?.type).toBe(GraphLayers.Category);
+    });
+
+    it('leaves the standalone node when no savings-like group exists', () => {
+      const graph = makeGraphWithUnspent('Rainy day fund');
+      mergeUnspentIntoSavings(graph);
+
+      expect(graph.has('unspent')).toBe(true);
+      expect(graph.has('unspent_child')).toBe(false);
+      expect(graph.get('acct')?.to.get('g_sav')).toBe(100);
+    });
+
+    it('does nothing when there is no unspent node', () => {
+      const graph: Graph = new Map();
+      addNode(graph, 'acct', GraphLayers.Account, 'Income');
+      addNode(graph, 'g_sav', GraphLayers.CategoryGroup, 'Savings');
+      addValueToLink(graph, 'acct', 'g_sav', 100);
+      mergeUnspentIntoSavings(graph);
+
+      expect(graph.has('unspent_child')).toBe(false);
+      expect(graph.get('acct')?.to.get('g_sav')).toBe(100);
+    });
   });
 
   describe('sortGraph', () => {

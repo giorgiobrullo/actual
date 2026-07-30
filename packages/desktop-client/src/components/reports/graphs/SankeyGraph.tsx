@@ -112,6 +112,12 @@ function SankeyLink({
   );
 }
 
+// Vertical intervals already occupied by labels, per column. Rebuilt on every
+// chart render; nodes consult it to decide whether their second text line has
+// room, so the decision tracks the actual space below a node rather than the
+// node's own height — a 3px node with nothing under it can carry its amount.
+type LabelRegistry = Map<number, Array<[number, number]>>;
+
 type SankeyNodeProps = {
   x: number;
   y: number;
@@ -122,6 +128,7 @@ type SankeyNodeProps = {
   phase: 'waiting' | 'animating' | 'done';
   showPercentages?: boolean;
   color?: string;
+  labelRegistry: LabelRegistry;
 };
 function SankeyNode({
   x,
@@ -132,6 +139,7 @@ function SankeyNode({
   containerWidth,
   phase,
   showPercentages,
+  labelRegistry,
 }: SankeyNodeProps) {
   const privacyMode = usePrivacyMode();
   const format = useFormat();
@@ -165,10 +173,26 @@ function SankeyNode({
     </text>
   );
 
-  // A node a few pixels tall cannot carry two lines of text: adjacent labels
-  // overprint each other and the column turns to soup. Keep the name, drop
-  // the amount — it is still in the tooltip.
-  const showValueLine = height >= 8;
+  // Two 13px/11px text lines hang from the node's vertical middle. Whether
+  // they fit is a question about the neighbours' labels in the same column,
+  // not about this node's height. Check the space already claimed and drop
+  // the amount line only when it would overprint; the name is always drawn.
+  const NAME_ASCENT = 10;
+  const NAME_DESCENT = 3;
+  const VALUE_DESCENT = 3;
+  const middle = y + height / 2;
+  const nameTop = middle - NAME_ASCENT;
+  const nameBottom = middle + NAME_DESCENT;
+  const valueBottom = middle + 13 + VALUE_DESCENT;
+
+  const columnKey = Math.round(x);
+  const occupied = labelRegistry.get(columnKey) ?? [];
+  const overlaps = (top: number, bottom: number) =>
+    occupied.some(([t, b]) => top < b && bottom > t);
+
+  const showValueLine = !overlaps(nameTop, valueBottom);
+  occupied.push([nameTop, showValueLine ? valueBottom : nameBottom]);
+  labelRegistry.set(columnKey, occupied);
 
   return (
     <Layer
@@ -227,6 +251,10 @@ export function SankeyGraph({
     animationDisabled ? 'done' : 'waiting',
   );
 
+  // Fresh per render: recharts draws all nodes in one synchronous pass, and
+  // each node registers the label space it takes as it renders.
+  const labelRegistry: LabelRegistry = new Map();
+
   useEffect(() => {
     if (!viewportEl || phase !== 'waiting') return;
     const observer = new IntersectionObserver(([entry]) => {
@@ -259,6 +287,7 @@ export function SankeyGraph({
                   containerWidth={width}
                   phase={phase}
                   showPercentages={showPercentages}
+                  labelRegistry={labelRegistry}
                 />
               )}
               link={props => (

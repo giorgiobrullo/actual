@@ -441,6 +441,7 @@ export type SankeyWidget = AbstractWidget<
     showPercentages?: boolean;
     groupAccounts?: boolean;
     showTransfers?: boolean;
+    mergeUnspent?: boolean;
     layerFrom?: string;
     layerTo?: string;
   } | null

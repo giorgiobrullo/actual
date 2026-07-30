@@ -141,6 +141,7 @@ export function SankeyCard({
       meta?.categorySort ?? 'per-group',
       layerFrom,
       layerTo,
+      meta?.mergeUnspent ?? false,
     );
   }, [
     displayBaseGraph,
@@ -149,6 +150,7 @@ export function SankeyCard({
     meta?.categorySort,
     layerFrom,
     layerTo,
+    meta?.mergeUnspent,
   ]);
 
   const startDate = d.parseISO(start);

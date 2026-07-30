@@ -112,6 +112,7 @@ const SpecialNodeKeys = {
   AvailableIncome: 'available_income',
   AllAccounts: 'all_income',
   Unspent: 'unspent',
+  UnspentChild: 'unspent_child',
   FromBalance: 'from_balance',
   OtherSuffix: '__OTHER_BUCKET',
   HiddenSuffix: '__HIDDEN',
@@ -214,6 +215,7 @@ export function buildSankeyData(
   categorySort: SortMode,
   layerFrom: GraphLayers,
   layerTo: GraphLayers,
+  mergeUnspent: boolean = false,
 ): SankeyData {
   return buildSankeyDataWithStats(
     baseGraph,
@@ -222,6 +224,7 @@ export function buildSankeyData(
     categorySort,
     layerFrom,
     layerTo,
+    mergeUnspent,
   ).data;
 }
 
@@ -236,8 +239,13 @@ export function buildSankeyDataWithStats(
   categorySort: SortMode,
   layerFrom: GraphLayers,
   layerTo: GraphLayers,
+  mergeUnspent: boolean = false,
 ): { data: SankeyData; maxNodesPerLayer: number } {
   const graph = cloneGraph(baseGraph);
+
+  if (mergeUnspent) {
+    mergeUnspentIntoSavings(graph);
+  }
 
   const toolTipInfoMap = groupOtherCategories(
     graph,
@@ -985,6 +993,55 @@ export function getLayer(graph: Graph, key: NodeKey): number {
   return 1 + Math.max(...parents.map(parentKey => getLayer(graph, parentKey)));
 }
 
+// Unspent income and deliberate transfers to savings are both money that was
+// not consumed — some people want them side by side under one ribbon rather
+// than as separate top-level flows. Reroute the Unspent remainder into the
+// savings/investments category group, as a child category next to the real
+// ones. The group is found by name because nothing in the data model marks a
+// group as "savings"; when no group matches, the standalone node stays.
+export function mergeUnspentIntoSavings(graph: Graph): void {
+  const unspent = graph.get(SpecialNodeKeys.Unspent);
+  if (!unspent) {
+    return;
+  }
+
+  const SAVINGS_NAME = /sav|invest/i;
+  const targetKey = nodesInLayer(graph, GraphLayers.CategoryGroup).find(key => {
+    const node = graph.get(key);
+    return Boolean(
+      node &&
+      key !== SpecialNodeKeys.Unspent &&
+      !key.endsWith(SpecialNodeKeys.OtherSuffix) &&
+      node.name &&
+      SAVINGS_NAME.test(node.name),
+    );
+  });
+  if (targetKey === undefined) {
+    return;
+  }
+
+  let total = 0;
+  for (const [fromKey, fromData] of graph) {
+    const value = fromData.to.get(SpecialNodeKeys.Unspent);
+    if (value !== undefined) {
+      addValueToLink(graph, fromKey, targetKey, value);
+      fromData.to.delete(SpecialNodeKeys.Unspent);
+      total += value;
+    }
+  }
+  graph.delete(SpecialNodeKeys.Unspent);
+
+  if (total !== 0) {
+    addNodeWithLabel(
+      graph,
+      SpecialNodeKeys.UnspentChild,
+      GraphLayers.Category,
+      'Unspent',
+    );
+    addValueToLink(graph, targetKey, SpecialNodeKeys.UnspentChild, total);
+  }
+}
+
 function groupOtherCategories(
   graph: Graph,
   topN: number,
@@ -1445,6 +1502,7 @@ function addColors(graph: Graph) {
   setColor(graph, SpecialNodeKeys.FromPrevMonth, theme.reportsGray);
   setColor(graph, SpecialNodeKeys.ForNextMonth, theme.reportsGray);
   setColor(graph, SpecialNodeKeys.Unspent, theme.reportsGray);
+  setColor(graph, SpecialNodeKeys.UnspentChild, theme.reportsGray);
   setColor(graph, SpecialNodeKeys.FromBalance, theme.reportsGray);
   setColor(graph, SpecialNodeKeys.Budgeted, theme.reportsBlue);
   setColor(graph, SpecialNodeKeys.AvailableIncome, theme.reportsBlue);

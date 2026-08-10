@@ -1,4 +1,4 @@
-FROM node:22-bookworm AS deps
+FROM node:24-bookworm AS deps
 
 # Install required packages
 RUN apt-get update && apt-get install -y openssl
@@ -81,7 +81,7 @@ RUN yarn build:api
 
 RUN yarn workspaces focus @actual-app/api --production
 
-FROM node:22-bookworm-slim AS autosync
+FROM node:24-bookworm-slim AS autosync
 
 RUN apt-get update && apt-get install -y tini && apt-get clean -y && rm -rf /var/lib/apt/lists/*
 
@@ -105,7 +105,7 @@ VOLUME /data
 ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
 CMD ["node", "auto-bank-sync.mjs"]
 
-FROM node:22-bookworm-slim AS prod
+FROM node:24-bookworm-slim AS prod
 
 # Minimal runtime dependencies. xvfb provides a virtual X display: Camoufox
 # (the anti-detect Firefox used by the bank scrapers) runs a real headful

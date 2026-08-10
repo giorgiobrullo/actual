@@ -63,7 +63,7 @@ function firstString(rec: Record<string, unknown>, keys: string[]): string {
  * money in (positive). Avarda reports every amount as a positive magnitude and
  * expresses direction through `type` instead, so the sign is applied here.
  */
-function normalizeTransaction(raw: unknown): Transaction | null {
+export function normalizeTransaction(raw: unknown): Transaction | null {
   if (!raw || typeof raw !== 'object') return null;
   const rec = raw as Record<string, unknown>;
 
@@ -94,10 +94,38 @@ function normalizeTransaction(raw: unknown): Transaction | null {
     firstString(rec, ['orderReference', 'transactionId', 'id']) ||
     `${date}-${magnitude}-${firstString(rec, ['description'])}`;
 
-  const payeeName =
-    firstString(rec, ['description', 'merchantName']) || 'TF Bank';
+  // Repayments describe themselves by IBAN, which is unreadable as a payee, so
+  // they get the same fixed name the other card integrations use and keep the
+  // account details in the notes instead.
+  const description = firstString(rec, ['description', 'merchantName']);
+  const isRepayment =
+    isInflow && /^[A-Z]{2}\d{2}[A-Z0-9]{10,}$/.test(description);
+  const payeeName = isRepayment
+    ? 'Credit Card Payment'
+    : description || 'TF Bank';
 
-  const noteParts = [firstString(rec, ['notes']), type].filter(Boolean);
+  // Labelled parts only: the bare type ('CardTransaction' on every purchase)
+  // carries no information and just crowds out anything that does.
+  const noteParts: string[] = [];
+  if (isRepayment) {
+    noteParts.push('⚠️ Convert to transfer from bank account');
+    noteParts.push(`From: ${description}`);
+  }
+  const text = firstString(rec, ['notes']);
+  if (text && text !== description) noteParts.push(text);
+  const category = firstString(rec, ['merchantCategory', 'category']);
+  if (category) noteParts.push(`Category: ${category}`);
+  const foreignAmount = num(rec.foreignAmount ?? rec.originalAmount);
+  const foreignCurrency = firstString(rec, [
+    'foreignCurrency',
+    'originalCurrency',
+  ]);
+  if (foreignAmount !== undefined && foreignCurrency) {
+    noteParts.push(`Original: ${foreignAmount} ${foreignCurrency}`);
+  }
+  if (type && !/cardtransaction|incomingpayment/i.test(type)) {
+    noteParts.push(`Type: ${type}`);
+  }
 
   return {
     transactionId,

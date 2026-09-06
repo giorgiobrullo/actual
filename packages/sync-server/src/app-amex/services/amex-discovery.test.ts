@@ -30,6 +30,30 @@ describe('mergeDiscoveredAccounts', () => {
     ]);
   });
 
+  it('reads the nested card name and number the member listing uses', () => {
+    const accounts = mergeDiscoveredAccounts([], {
+      accounts: [
+        {
+          account: { display_account_number: '22009', relationship: 'BASIC' },
+          product: { description: 'Carta di Credito Oro American Express®' },
+          profile: { embossed_name: 'MARIO ROSSI' },
+          account_token: 'tok-1',
+        },
+      ],
+    });
+
+    expect(accounts).toEqual([
+      {
+        account_token: 'tok-1',
+        name: 'Carta di Credito Oro American Express®',
+        display_number: '22009',
+        balance: undefined,
+        credit_limit: undefined,
+        available_credit: undefined,
+      },
+    ]);
+  });
+
   it('finds accounts nested inside a v2 prefetch payload', () => {
     // The reason discovery silently returned zero: v1 sent a flat array, v2
     // buries the same records several levels down.

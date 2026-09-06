@@ -10,12 +10,7 @@ import type {
 import { AmexSetupError, SessionExpiredError } from '#app-amex/utils/errors';
 import { SecretName, secretsService } from '#services/secrets-service';
 
-import {
-  buildCookieHeader,
-  clearSession,
-  getSessionCookies,
-  hasValidSession,
-} from './amex-auth';
+import { apiRequest, clearSession, hasValidSession } from './amex-auth';
 
 const debug = createDebug('actual:amex:services');
 
@@ -153,24 +148,13 @@ export async function testProxy(
  */
 async function makeApiRequest<T>(
   url: string,
-  options: RequestInit = {},
+  options: { headers?: Record<string, string> } = {},
 ): Promise<T> {
-  const cookies = await getSessionCookies();
-
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-    'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Content-Type': 'application/json',
-    Cookie: buildCookieHeader(cookies),
-    ...((options.headers as Record<string, string>) || {}),
-  };
-
   debug('Making API request to: %s', url);
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
+  // Runs inside the session's browser; Node-side requests are rejected by
+  // Amex's bot management. See sessionContext in amex-auth.
+  const response = await apiRequest(url, options.headers ?? {});
 
   debug('API response status: %d', response.status);
 
@@ -180,13 +164,12 @@ async function makeApiRequest<T>(
     throw new SessionExpiredError('Amex session expired, please re-login');
   }
 
-  if (!response.ok) {
-    const text = await response.text();
-    debug('API error response: %s', text);
-    throw new Error(`Amex API error: ${response.status} ${text}`);
+  if (response.status < 200 || response.status >= 300) {
+    debug('API error response: %s', response.text);
+    throw new Error(`Amex API error: ${response.status} ${response.text}`);
   }
 
-  return (await response.json()) as T;
+  return JSON.parse(response.text) as T;
 }
 
 /**

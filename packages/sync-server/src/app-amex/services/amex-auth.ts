@@ -84,6 +84,102 @@ let cachedSession: AmexSession | null = null;
 // Session TTL - 4 minutes (aat token expires in ~5 min, we refresh before that)
 const SESSION_TTL_MS = 4 * 60 * 1000;
 
+/**
+ * The browser that performed the login, kept open for the life of the session.
+ *
+ * Amex fronts global.americanexpress.com with Akamai Bot Manager, which ties
+ * the session cookies (_abck, bm_sz, ...) to the TLS and HTTP fingerprint of
+ * the client that earned them. Replaying those cookies from Node's fetch is
+ * answered with 403 however complete the headers are, and only occasionally
+ * slips through right after the browser has been busy. So every API call is
+ * made by the browser itself: `sessionApiPage` is a tab parked on a static
+ * same-origin URL and requests run as fetch() inside it. The page has to be
+ * static because the Amex web app patches out eval, which breaks
+ * page.evaluate on any page that loads it.
+ */
+let sessionContext: BrowserContext | null = null;
+let sessionApiPage: Page | null = null;
+let sessionCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+const AMEX_API_ORIGIN = 'https://global.americanexpress.com';
+const AMEX_API_PAGE_URL = `${AMEX_API_ORIGIN}/robots.txt`;
+
+export type AmexApiResponse = { status: number; text: string };
+
+async function openApiPage(context: BrowserContext): Promise<Page> {
+  const apiPage = await context.newPage();
+  await apiPage.goto(AMEX_API_PAGE_URL, {
+    waitUntil: 'domcontentloaded',
+    timeout: 30000,
+  });
+  return apiPage;
+}
+
+async function pageFetch(
+  apiPage: Page,
+  url: string,
+  headers: Record<string, string> = {},
+): Promise<AmexApiResponse> {
+  const absolute = url.startsWith('http') ? url : `${AMEX_API_ORIGIN}${url}`;
+  return apiPage.evaluate(
+    async ({ url, headers }) => {
+      const response = await fetch(url, {
+        credentials: 'include',
+        headers: { Accept: 'application/json', ...headers },
+      });
+      return { status: response.status, text: await response.text() };
+    },
+    { url: absolute, headers },
+  );
+}
+
+async function closeSessionBrowser(): Promise<void> {
+  if (sessionCloseTimer) {
+    clearTimeout(sessionCloseTimer);
+    sessionCloseTimer = null;
+  }
+  const context = sessionContext;
+  sessionContext = null;
+  sessionApiPage = null;
+  if (context) {
+    try {
+      await closeStealthContext(context);
+    } catch (e) {
+      debug(
+        'Error closing session browser: %s',
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
+}
+
+/**
+ * Make an authenticated Amex API request from inside the session's browser,
+ * logging in first when there is no live session.
+ */
+export async function apiRequest(
+  url: string,
+  headers: Record<string, string> = {},
+): Promise<AmexApiResponse> {
+  if (!getCachedSession() || !sessionApiPage || sessionApiPage.isClosed()) {
+    debug('No live browser session, performing login...');
+    await performLogin();
+  }
+  const apiPage = sessionApiPage;
+  if (!apiPage) {
+    throw new AuthFailedError('Amex login did not produce a browser session');
+  }
+  try {
+    return await pageFetch(apiPage, url, headers);
+  } catch (e) {
+    // The tab or browser went away underneath us: drop the session so the
+    // next call performs a fresh login instead of failing the same way.
+    debug('In-browser request failed: %s', e instanceof Error ? e.message : e);
+    clearSession();
+    throw new AuthFailedError('Amex browser session is no longer available');
+  }
+}
+
 // Login timeout - increased for slow proxy connections
 const LOGIN_TIMEOUT_MS = 60000;
 
@@ -142,6 +238,12 @@ function collectAccountObjects(
   return found;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 function firstNumber(
   record: Record<string, unknown>,
   keys: string[],
@@ -178,13 +280,22 @@ export function mergeDiscoveredAccounts(
 ): AmexAccount[] {
   for (const record of collectAccountObjects(payload)) {
     const token = record.account_token as string;
+    // The member listing nests the number under `account` and the card name
+    // under `product`; the financial endpoints keep the same fields flat.
+    const nestedAccount = asRecord(record.account);
+    const nestedProduct = asRecord(record.product);
     const displayNumber =
       firstText(record, ['display_account_number', 'last_five', 'last_four']) ??
+      (nestedAccount &&
+        firstText(nestedAccount, ['display_account_number', 'last_five'])) ??
       token.slice(-4);
     // Deliberately not `embossed_name`: that is the cardholder, and Amex
     // returns no product name here, so falling through to it would name the
     // account after the person rather than the card.
-    const name = firstText(record, ['product_name', 'display_name']);
+    const name =
+      firstText(record, ['product_name', 'display_name']) ??
+      (nestedProduct &&
+        firstText(nestedProduct, ['description', 'product_name']));
     const balance = firstNumber(record, [
       'statement_balance_amount',
       'remaining_statement_balance_amount',
@@ -279,6 +390,9 @@ export async function performLogin(): Promise<AmexSession> {
   }
 
   debug('Starting Amex login flow...');
+
+  // A previous session may still hold the browser (and the profile lock).
+  await closeSessionBrowser();
 
   let context: BrowserContext | null = null;
 
@@ -1056,28 +1170,22 @@ export async function performLogin(): Promise<AmexSession> {
     // Interception only sees a request the app actually makes, and with a warm
     // profile the dashboard renders from its own cache without re-fetching, so
     // the better the session persistence works the less there is to intercept.
+    // Opened before discovery so it, and every later request in this
+    // session, runs inside the browser. See sessionContext for why.
+    const apiPage = await openApiPage(context);
+
     if (discoveredAccounts.length === 0) {
-      const cookieHeader = Object.entries(cookies)
-        .map(([name, value]) => `${name}=${value}`)
-        .join('; ');
-
       for (const url of AMEX_ACCOUNT_SOURCES) {
-        const path = url.replace('https://global.americanexpress.com', '');
+        const path = url.replace(AMEX_API_ORIGIN, '');
         try {
-          const response = await fetch(url, {
-            headers: {
-              Accept: 'application/json',
-              'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8',
-              Cookie: cookieHeader,
-            },
-          });
+          const response = await pageFetch(apiPage, url);
 
-          if (!response.ok) {
+          if (response.status < 200 || response.status >= 300) {
             debug('discovery %s -> %d', path, response.status);
             continue;
           }
 
-          const body = await response.text();
+          const body = response.text;
           let payload: unknown;
           try {
             payload = JSON.parse(body);
@@ -1120,21 +1228,19 @@ export async function performLogin(): Promise<AmexSession> {
       // that the listing endpoints leave out.
       for (const account of discoveredAccounts) {
         for (const url of AMEX_ACCOUNT_DETAIL_SOURCES) {
-          const path = url.replace('https://global.americanexpress.com', '');
+          const path = url.replace(AMEX_API_ORIGIN, '');
           try {
-            const response = await fetch(url, {
-              headers: {
-                Accept: 'application/json',
-                'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8',
-                Cookie: cookieHeader,
-                account_token: account.account_token,
-              },
+            const response = await pageFetch(apiPage, url, {
+              account_token: account.account_token,
             });
-            if (!response.ok) {
+            if (response.status < 200 || response.status >= 300) {
               debug('detail %s -> %d', path, response.status);
               continue;
             }
-            mergeDiscoveredAccounts(discoveredAccounts, await response.json());
+            mergeDiscoveredAccounts(
+              discoveredAccounts,
+              JSON.parse(response.text),
+            );
             debug('detail %s -> 200', path);
           } catch (e) {
             debug(
@@ -1191,8 +1297,19 @@ export async function performLogin(): Promise<AmexSession> {
       new Date(cachedSession.expiresAt),
     );
 
+    // The browser now belongs to the session: see sessionContext.
+    sessionContext = context;
+    sessionApiPage = apiPage;
+    context = null;
+    sessionCloseTimer = setTimeout(() => {
+      debug('Session TTL elapsed, closing browser');
+      void closeSessionBrowser();
+    }, SESSION_TTL_MS);
+    sessionCloseTimer.unref?.();
+
     return cachedSession;
   } finally {
+    // Still set only when login failed; success hands it to the session.
     if (context) {
       await closeStealthContext(context);
     }
@@ -1220,6 +1337,7 @@ export async function getSessionCookies(): Promise<Record<string, string>> {
 export function clearSession(): void {
   debug('Clearing cached session');
   cachedSession = null;
+  void closeSessionBrowser();
 }
 
 /**

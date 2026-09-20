@@ -207,6 +207,32 @@ async function findVisible(
   return null;
 }
 
+// How long a humanized click may take before it is treated as wedged.
+const CLICK_TIMEOUT_MS = 8000;
+
+function isTimeoutError(e: unknown): boolean {
+  return e instanceof Error && e.name === 'TimeoutError';
+}
+
+/**
+ * Click a login-form field, falling back to keyboard focus.
+ *
+ * About one run in seven the humanized click stalls at "performing click
+ * action" on an element Playwright has already found visible, enabled and
+ * stable, and sits there until the default 30s timeout fails the whole sync.
+ * The click only exists to put the caret in the field, so give it a short
+ * budget and focus the field directly when it does not come back.
+ */
+async function clickOrFocus(page: Page, selector: string): Promise<void> {
+  try {
+    await page.click(selector, { timeout: CLICK_TIMEOUT_MS });
+  } catch (e) {
+    if (!isTimeoutError(e)) throw e;
+    debug('Click on %s stalled, focusing it instead', selector);
+    await page.locator(selector).focus({ timeout: CLICK_TIMEOUT_MS });
+  }
+}
+
 /**
  * Every object carrying an `account_token`, at any depth.
  *
@@ -382,6 +408,26 @@ async function extractCookies(
  * Returns session cookies on success
  */
 export async function performLogin(): Promise<AmexSession> {
+  const progress = { submitted: false };
+  try {
+    return await attemptLogin(progress);
+  } catch (e) {
+    // A stall before the form is submitted has cost nothing: no credentials
+    // were sent and no verification email was requested, so a fresh browser is
+    // free to try once more. Past that point a retry would trigger a second
+    // OTP email and look like credential stuffing, so the error stands.
+    if (progress.submitted || !isTimeoutError(e)) throw e;
+    debug(
+      'Login stalled before submitting credentials, retrying once: %s',
+      e instanceof Error ? e.message.split('\n')[0] : String(e),
+    );
+    return await attemptLogin({ submitted: false });
+  }
+}
+
+async function attemptLogin(progress: {
+  submitted: boolean;
+}): Promise<AmexSession> {
   const username = secretsService.get(SecretName.amex_username);
   const password = secretsService.get(SecretName.amex_password);
 
@@ -554,11 +600,11 @@ export async function performLogin(): Promise<AmexSession> {
     // invisible reCAPTCHA); Camoufox humanizes the cursor, and pressSequentially
     // with a per-key delay humanizes the typing.
     debug('Entering credentials...');
-    await page.click('#eliloUserID');
+    await clickOrFocus(page, '#eliloUserID');
     await page.locator('#eliloUserID').pressSequentially(username, {
       delay: 90 + Math.floor(Math.random() * 70),
     });
-    await page.click('#eliloPassword');
+    await clickOrFocus(page, '#eliloPassword');
     await page.locator('#eliloPassword').pressSequentially(password, {
       delay: 90 + Math.floor(Math.random() * 70),
     });
@@ -566,9 +612,22 @@ export async function performLogin(): Promise<AmexSession> {
     // Small pause before submitting, as a human would.
     await page.waitForTimeout(400 + Math.floor(Math.random() * 500));
 
-    // Click login button
+    // Click login button. From here on the attempt is no longer free to retry.
     debug('Clicking login button...');
-    await page.click('#loginSubmit');
+    progress.submitted = true;
+    try {
+      await page.click('#loginSubmit', { timeout: CLICK_TIMEOUT_MS });
+    } catch (e) {
+      if (!isTimeoutError(e)) throw e;
+      // The stalled click may still have landed, in which case the form is
+      // already gone; failing to press Enter is then not an error, and the
+      // checks below decide whether the login went through.
+      debug('Click on #loginSubmit stalled, submitting with Enter instead');
+      await page
+        .locator('#eliloPassword')
+        .press('Enter', { timeout: CLICK_TIMEOUT_MS })
+        .catch(() => debug('Login form no longer there, carrying on'));
+    }
 
     // Wait for any CAPTCHA or response to appear
     debug('Waiting for login response...');

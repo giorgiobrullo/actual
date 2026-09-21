@@ -59,32 +59,52 @@ export function getCachedAccounts(): CartaYouAccount[] {
   return session?.accounts || [];
 }
 
+// The API the transactions come from; cookies are picked the way a browser would
+// pick them for a request to it.
+const CARTAYOU_API_URL = 'https://my.cartayou.it/api/';
+
 /**
- * Extract cookies from browser context
- * Gets ALL cookies to ensure we capture frontCookie and other auth cookies
+ * Leftovers of the OpenID Connect handshake. ASP.NET Core sets one nonce and one
+ * correlation cookie per login attempt and only removes them when that attempt
+ * completes, so every login that never got its SMS code left a pair behind in
+ * the persistent profile. After a month of those the Cookie header outgrew what
+ * the server accepts and every API call answered 431. They mean nothing once
+ * the login is over, so they are neither sent nor kept.
+ */
+const HANDSHAKE_COOKIE = /^\.AspNetCore\.(OpenIdConnect\.Nonce|Correlation)\./;
+
+/**
+ * The cookies worth sending to the API, out of everything the browser holds.
+ */
+export function selectApiCookies(
+  cookies: ReadonlyArray<{ name: string; value: string }>,
+): Record<string, string> {
+  const cookieMap: Record<string, string> = {};
+  for (const cookie of cookies) {
+    if (!HANDSHAKE_COOKIE.test(cookie.name)) {
+      cookieMap[cookie.name] = cookie.value;
+    }
+  }
+  return cookieMap;
+}
+
+/**
+ * Extract the cookies an API request needs from the browser context.
+ *
+ * Scoped to the API's URL rather than to every cartayou.it host: the identity
+ * server's cookies (id.cartayou.it) are not the API's, and sending them only
+ * makes the header bigger.
  */
 async function extractCookies(
   context: BrowserContext,
 ): Promise<Record<string, string>> {
-  // Get ALL cookies (no URL filter)
-  const cookies = await context.cookies();
-  const cookieMap: Record<string, string> = {};
-
-  for (const cookie of cookies) {
-    // Only include cookies for cartayou.it domains
-    if (cookie.domain.includes('cartayou.it')) {
-      cookieMap[cookie.name] = cookie.value;
-      debug(
-        'Cookie: %s = %s... (domain: %s, httpOnly: %s, secure: %s)',
-        cookie.name,
-        cookie.value.substring(0, 30),
-        cookie.domain,
-        cookie.httpOnly,
-        cookie.secure,
-      );
-    }
-  }
-
+  const cookies = await context.cookies(CARTAYOU_API_URL);
+  const cookieMap = selectApiCookies(cookies);
+  debug(
+    'Keeping %d of %d cookies for the API',
+    Object.keys(cookieMap).length,
+    cookies.length,
+  );
   return cookieMap;
 }
 
@@ -113,6 +133,10 @@ export async function performLogin(): Promise<CartaYouSession> {
       locale: 'it-IT',
       profile: 'cartayou',
     });
+
+    // Drop what earlier, unfinished logins left in the profile (see
+    // HANDSHAKE_COOKIE); this login gets a fresh pair of its own.
+    await context.clearCookies({ name: HANDSHAKE_COOKIE });
 
     const page = context.pages()[0] ?? (await context.newPage());
 

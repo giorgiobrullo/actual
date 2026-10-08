@@ -1105,6 +1105,7 @@ function SankeyInner({ widget }: SankeyInnerProps) {
                       style={{ flexGrow: 1 }}
                       data={displayData}
                       showPercentages={showPercentages}
+                      growToFit
                     />
                   </View>
                 ) : (

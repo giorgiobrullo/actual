@@ -175,8 +175,10 @@ function SankeyNode({
 
   // Two 13px/11px text lines hang from the node's vertical middle. Whether
   // they fit is a question about the neighbours' labels in the same column,
-  // not about this node's height. Check the space already claimed and drop
-  // the amount line only when it would overprint; the name is always drawn.
+  // not about this node's height. Check the space already claimed: the amount
+  // line goes first, and the name too when it would overprint a neighbour's
+  // (a dense column otherwise turned into unreadable stacked text). A node
+  // without a label still shows its name and amount in the tooltip.
   const NAME_ASCENT = 10;
   const NAME_DESCENT = 3;
   const VALUE_DESCENT = 3;
@@ -190,9 +192,12 @@ function SankeyNode({
   const overlaps = (top: number, bottom: number) =>
     occupied.some(([t, b]) => top < b && bottom > t);
 
-  const showValueLine = !overlaps(nameTop, valueBottom);
-  occupied.push([nameTop, showValueLine ? valueBottom : nameBottom]);
-  labelRegistry.set(columnKey, occupied);
+  const showName = !overlaps(nameTop, nameBottom);
+  const showValueLine = showName && !overlaps(nameTop, valueBottom);
+  if (showName) {
+    occupied.push([nameTop, showValueLine ? valueBottom : nameBottom]);
+    labelRegistry.set(columnKey, occupied);
+  }
 
   return (
     <Layer
@@ -205,7 +210,7 @@ function SankeyNode({
       }
     >
       <Rectangle x={x} y={y} width={width} height={height} fill={fillColor} />
-      {renderText(payload.name || '', height / 2)}
+      {showName && renderText(payload.name || '', height / 2)}
       {showValueLine &&
         renderText(
           showPercentages && payload.percentageLabel
@@ -220,6 +225,35 @@ function SankeyNode({
   );
 }
 
+// How many nodes the busiest column holds, as recharts lays them out: a node
+// sits one column past the deepest of its sources, and nodes with no outgoing
+// link may be pushed to the last column, so count those as one column too.
+export function widestColumn(data: SankeyData): number {
+  const depth = data.nodes.map(() => 0);
+  for (let pass = 0; pass < data.nodes.length; pass++) {
+    let changed = false;
+    for (const link of data.links) {
+      const source = link.source as number;
+      const target = link.target as number;
+      if (depth[target] < depth[source] + 1) {
+        depth[target] = depth[source] + 1;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  const perColumn = new Map<number, number>();
+  depth.forEach(d => perColumn.set(d, (perColumn.get(d) ?? 0) + 1));
+  const hasOutgoing = new Set(data.links.map(link => link.source as number));
+  const sinks = data.nodes.filter((_, i) => !hasOutgoing.has(i)).length;
+  return Math.max(1, sinks, ...perColumn.values());
+}
+
+const MAX_NODE_PADDING = 23;
+const CHART_MARGIN = { left: 0, right: 0, top: 10, bottom: 25 };
+// Room a node needs for its two label lines when the chart may grow.
+const PX_PER_NODE_TO_FIT = 34;
+
 type SankeyGraphProps = {
   style?: CSSProperties;
   data: SankeyData;
@@ -229,6 +263,9 @@ type SankeyGraphProps = {
   // IntersectionObserver, which never fires for the offscreen copy the image
   // export draws — without this, the exported PNG would be blank.
   animationDisabled?: boolean;
+  // Grow taller than the container (scrolling) when the busiest column needs
+  // more room, instead of squeezing every node into the available height.
+  growToFit?: boolean;
 };
 export function SankeyGraph({
   style,
@@ -236,6 +273,7 @@ export function SankeyGraph({
   showTooltip = true,
   showPercentages = false,
   animationDisabled = false,
+  growToFit = false,
 }: SankeyGraphProps) {
   const privacyMode = usePrivacyMode();
   const format = useFormat();
@@ -276,119 +314,152 @@ export function SankeyGraph({
 
   return (
     <Container style={style}>
-      {(width, height) => (
-        <div ref={setViewportEl} style={{ width: '100%', height: '100%' }}>
-          <ResponsiveContainer>
-            <Sankey
-              data={data}
-              node={props => (
-                <SankeyNode
-                  {...props}
-                  containerWidth={width}
-                  phase={phase}
-                  showPercentages={showPercentages}
-                  labelRegistry={labelRegistry}
-                />
-              )}
-              link={props => (
-                <SankeyLink
-                  {...props}
-                  containerWidth={width}
-                  phase={phase}
-                  isHovered={hoveredLinkIndex === props.index}
-                  onMouseEnter={() => setHoveredLinkIndex(props.index)}
-                  onMouseLeave={() => setHoveredLinkIndex(null)}
-                />
-              )}
-              sort={false}
-              iterations={128}
-              nodePadding={23}
-              width={width}
-              height={height}
-              margin={{
-                left: 0,
-                right: 0,
-                top: 10,
-                bottom: 25,
-              }}
-            >
-              {showTooltip && (
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null;
-                    const { value = 0, name = '' } = payload[0];
-                    const tooltipInfo =
-                      hoveredLinkIndex !== null
-                        ? (
-                            data.links[hoveredLinkIndex] as {
-                              tooltipInfo?: Array<{
-                                name: string;
-                                value: number;
-                              }>;
-                            }
-                          )?.tooltipInfo
-                        : undefined;
-                    return (
-                      <div
-                        className={css({
-                          zIndex: 1000,
-                          pointerEvents: 'none',
-                          borderRadius: 2,
-                          boxShadow: '0 1px 6px rgba(0, 0, 0, .20)',
-                          backgroundColor: theme.menuBackground,
-                          color: theme.menuItemText,
-                          padding: 10,
-                        })}
-                      >
-                        <div style={{ lineHeight: 1.4 }}>
-                          {name && (
-                            <div style={{ marginBottom: 5 }}>{name}</div>
-                          )}
+      {(width, height) => {
+        // recharts sizes nodes as (height - (n - 1) * padding) / total. With a
+        // fixed 23px padding a 35-node column needs ~800px of gaps alone; in a
+        // shorter chart the scale goes negative and nodes stack on each other
+        // or land outside the plot. Keep the gaps to half the inner height.
+        const busiest = widestColumn(data);
+        const chartHeight = growToFit
+          ? Math.max(
+              height,
+              busiest * PX_PER_NODE_TO_FIT +
+                CHART_MARGIN.top +
+                CHART_MARGIN.bottom,
+            )
+          : height;
+        const scrolls = chartHeight > height;
+        const chartWidth = scrolls ? Math.max(0, width - 16) : width;
+        const innerHeight =
+          chartHeight - CHART_MARGIN.top - CHART_MARGIN.bottom;
+        const nodePadding =
+          busiest > 1
+            ? Math.max(
+                1,
+                Math.min(
+                  MAX_NODE_PADDING,
+                  Math.floor((innerHeight * 0.5) / (busiest - 1)),
+                ),
+              )
+            : MAX_NODE_PADDING;
+        return (
+          <div
+            ref={setViewportEl}
+            style={{
+              width: '100%',
+              height: '100%',
+              overflowY: scrolls ? 'auto' : 'hidden',
+            }}
+          >
+            <div style={{ width: chartWidth, height: chartHeight }}>
+              <ResponsiveContainer>
+                <Sankey
+                  data={data}
+                  node={props => (
+                    <SankeyNode
+                      {...props}
+                      containerWidth={chartWidth}
+                      phase={phase}
+                      showPercentages={showPercentages}
+                      labelRegistry={labelRegistry}
+                    />
+                  )}
+                  link={props => (
+                    <SankeyLink
+                      {...props}
+                      containerWidth={chartWidth}
+                      phase={phase}
+                      isHovered={hoveredLinkIndex === props.index}
+                      onMouseEnter={() => setHoveredLinkIndex(props.index)}
+                      onMouseLeave={() => setHoveredLinkIndex(null)}
+                    />
+                  )}
+                  sort={false}
+                  iterations={128}
+                  nodePadding={nodePadding}
+                  width={chartWidth}
+                  height={chartHeight}
+                  margin={CHART_MARGIN}
+                >
+                  {showTooltip && (
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.length) return null;
+                        const { value = 0, name = '' } = payload[0];
+                        const tooltipInfo =
+                          hoveredLinkIndex !== null
+                            ? (
+                                data.links[hoveredLinkIndex] as {
+                                  tooltipInfo?: Array<{
+                                    name: string;
+                                    value: number;
+                                  }>;
+                                }
+                              )?.tooltipInfo
+                            : undefined;
+                        return (
                           <div
-                            style={{
-                              fontFamily: privacyMode
-                                ? t('Redacted Script')
-                                : undefined,
-                            }}
+                            className={css({
+                              zIndex: 1000,
+                              pointerEvents: 'none',
+                              borderRadius: 2,
+                              boxShadow: '0 1px 6px rgba(0, 0, 0, .20)',
+                              backgroundColor: theme.menuBackground,
+                              color: theme.menuItemText,
+                              padding: 10,
+                            })}
                           >
-                            {format(value, 'financial')}
-                          </div>
-                          {tooltipInfo && tooltipInfo.length > 0 && (
-                            <div
-                              style={{
-                                marginTop: 6,
-                                fontSize: 11,
-                                opacity: 0.7,
-                              }}
-                            >
-                              {tooltipInfo.map(item => (
-                                <div key={item.name}>
-                                  {item.name} (
-                                  <span
-                                    style={{
-                                      fontFamily: privacyMode
-                                        ? t('Redacted Script')
-                                        : undefined,
-                                    }}
-                                  >
-                                    {format(item.value, 'financial')}
-                                  </span>
-                                  )
+                            <div style={{ lineHeight: 1.4 }}>
+                              {name && (
+                                <div style={{ marginBottom: 5 }}>{name}</div>
+                              )}
+                              <div
+                                style={{
+                                  fontFamily: privacyMode
+                                    ? t('Redacted Script')
+                                    : undefined,
+                                }}
+                              >
+                                {format(value, 'financial')}
+                              </div>
+                              {tooltipInfo && tooltipInfo.length > 0 && (
+                                <div
+                                  style={{
+                                    marginTop: 6,
+                                    fontSize: 11,
+                                    opacity: 0.7,
+                                  }}
+                                >
+                                  {tooltipInfo.map(item => (
+                                    <div key={item.name}>
+                                      {item.name} (
+                                      <span
+                                        style={{
+                                          fontFamily: privacyMode
+                                            ? t('Redacted Script')
+                                            : undefined,
+                                        }}
+                                      >
+                                        {format(item.value, 'financial')}
+                                      </span>
+                                      )
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
+                              )}
                             </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  }}
-                  isAnimationActive={false}
-                />
-              )}
-            </Sankey>
-          </ResponsiveContainer>
-        </div>
-      )}
+                          </div>
+                        );
+                      }}
+                      isAnimationActive={false}
+                    />
+                  )}
+                </Sankey>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        );
+      }}
     </Container>
   );
 }

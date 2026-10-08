@@ -608,6 +608,47 @@ describe('sankey-spreadsheet', () => {
       expect(graph.has('p_employer')).toBe(true);
     });
 
+    it('names a refund-heavy expense category and a reversed income category after the category, not a payee', () => {
+      const categoryData = [
+        {
+          categoryGroup: 'Travel',
+          categoryGroupId: 'g_travel',
+          category: 'Lodging',
+          categoryId: 'c_lodging',
+          value: 300,
+          isIncome: false,
+          isNegative: false,
+          accountName: 'Checking',
+          accountId: 'a_checking',
+          // expense rows are not grouped by payee: this is whichever row came
+          // first, not the source of the money
+          payeeName: 'Some Payee',
+          payeeId: 'p_some',
+        },
+        {
+          categoryGroup: 'Income',
+          categoryGroupId: 'g_income',
+          category: 'Wages',
+          categoryId: 'c_wages',
+          value: 50,
+          isIncome: true,
+          isNegative: true,
+          accountName: 'Checking',
+          accountId: 'a_checking',
+          payeeName: 'Other Payee',
+          payeeId: 'p_other',
+        },
+      ];
+
+      const graph = createTransactionsGraph(categoryData);
+      const names = Array.from(graph.values(), n => n.name);
+
+      expect(names).toContain('Lodging (refunds)');
+      expect(names).toContain('Wages (reversed)');
+      expect(names).not.toContain('Some Payee');
+      expect(names).not.toContain('Other Payee');
+    });
+
     it('routes unspent income into an explicit Unspent node', () => {
       const categoryData = [
         {
@@ -826,7 +867,7 @@ describe('sankey-spreadsheet', () => {
       expect(otherCount).toBe(2);
     });
 
-    it('still folds group maxima when the budget cannot hold one per group', () => {
+    it('keeps every group maximum even when the cap is smaller than the number of groups', () => {
       const data = buildSankeyData(
         makeTwoGroupGraph(),
         2,
@@ -835,11 +876,41 @@ describe('sankey-spreadsheet', () => {
         GraphLayers.Account,
         GraphLayers.Category,
       );
-      // Degenerate budget: it must still terminate and respect the cap.
-      const categoryNodes = data.nodes.filter(
-        n => n.name.startsWith('Cat ') || n.name === 'Other',
+      // A two-node cap cannot hold one category per group plus their Other
+      // buckets. Folding the maxima as well used to leave each group as a lone
+      // "Other" worth the whole group; the cap gives way instead.
+      const names = data.nodes.map(n => n.name);
+      expect(names).toContain('Cat A');
+      expect(names).toContain('Cat D');
+    });
+
+    it("does not fold a group's only spare member into an Other of its own", () => {
+      const graph: Graph = new Map();
+      addNode(graph, 'acct', GraphLayers.Account, 'Income');
+      addNode(graph, 'g1', GraphLayers.CategoryGroup, 'G1');
+      addNode(graph, 'g2', GraphLayers.CategoryGroup, 'G2');
+      addNode(graph, 'a', GraphLayers.Category, 'Cat A');
+      addNode(graph, 'b', GraphLayers.Category, 'Cat B');
+      addNode(graph, 'c', GraphLayers.Category, 'Cat C');
+      addValueToLink(graph, 'acct', 'g1', 150);
+      addValueToLink(graph, 'acct', 'g2', 30);
+      addValueToLink(graph, 'g1', 'a', 100);
+      addValueToLink(graph, 'g1', 'b', 50);
+      addValueToLink(graph, 'g2', 'c', 30);
+
+      const data = buildSankeyData(
+        graph,
+        2,
+        [],
+        'per-group',
+        GraphLayers.Account,
+        GraphLayers.Category,
       );
-      expect(categoryNodes.length).toBeLessThanOrEqual(2 + 1);
+      // Renaming Cat B to "Other" would not reduce the node count, only hide
+      // its name.
+      const names = data.nodes.map(n => n.name);
+      expect(names).toContain('Cat B');
+      expect(names).not.toContain('Other');
     });
   });
 

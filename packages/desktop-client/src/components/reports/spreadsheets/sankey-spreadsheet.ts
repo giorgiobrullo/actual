@@ -925,15 +925,20 @@ export function createTransactionsGraph(
       if (entry.isIncome) {
         if (entry.isNegative) {
           // Account > Income category
+          // The node aggregates every payee of the category, so it is named
+          // after the category; labelling it with one payee misattributed it.
+          // A plain name, not addNodeWithLabel: that takes an i18n key, and a
+          // category name containing "." or ":" would be read as key syntax.
           addAccountNode(entry.accountId, entry.accountName);
-          addNodeWithLabel(
-            graph,
-            entry.categoryId + SpecialNodeKeys.NegativeSuffix,
-            GraphLayers.CategoryGroup,
-            entry.payeeName ?? entry.category,
-            undefined,
-            true,
-          );
+          const reversedKey = entry.categoryId + SpecialNodeKeys.NegativeSuffix;
+          if (!graph.has(reversedKey)) {
+            graph.set(reversedKey, {
+              to: new Map(),
+              type: GraphLayers.CategoryGroup,
+              name: `${entry.category} (reversed)`,
+              isNegative: true,
+            });
+          }
           addValueToLink(
             graph,
             entry.accountId,
@@ -989,12 +994,15 @@ export function createTransactionsGraph(
             entry.value,
           );
         } else {
-          // Category > Account
+          // Category > Account: an expense category whose refunds outweigh its
+          // spending in the period. Expense rows are not grouped by payee, so
+          // payeeName here is an arbitrary row's payee (a reimbursing person
+          // showed up as if they were an income source); name the category.
           addNode(
             graph,
             entry.categoryId + SpecialNodeKeys.NegativeSuffix,
             GraphLayers.IncomeCategory,
-            entry.payeeName ?? entry.category,
+            `${entry.category} (refunds)`,
           );
           addAccountNode(entry.accountId, entry.accountName);
           addValueToLink(
@@ -1372,7 +1380,7 @@ function groupOtherCategories(
     // a second slot. Without this, the top-N budget goes entirely to the
     // biggest groups and a small group renders as nothing but "Other". The
     // set is computed once per layer: values do not change while folding, and
-    // a protected node is only folded by the fallback pass below.
+    // a protected node is never folded.
     const anchorMax = new Map<NodeKey, { key: NodeKey; value: number }>();
     for (const nodeKey of ordinaryNodes) {
       const anchor = anchorOf(nodeKey);
@@ -1387,12 +1395,27 @@ function groupOtherCategories(
       Array.from(anchorMax.values(), entry => entry.key),
     );
 
+    // Folding a group's only spare member into a fresh "Other" saves no slot:
+    // it just renames the node. A fold pays off once the group already has an
+    // Other bucket, or will put a second member into the new one.
+    function foldSavesSlot(nodeKey: NodeKey, unprotected: NodeKey[]): boolean {
+      if (categorySort === 'global') return true;
+      const anchor = anchorOf(nodeKey);
+      if (anchor === undefined) return true;
+      if (graph.has(anchor + SpecialNodeKeys.OtherSuffix)) return true;
+      return unprotected.filter(k => anchorOf(k) === anchor).length >= 2;
+    }
+
     while (ordinaryNodes.length + otherNodes.length > topN) {
       let minValue = Infinity;
       let nodeToDelete: NodeKey | undefined;
       const unprotected = ordinaryNodes.filter(k => !protectedKeys.has(k));
-      // Fall back to folding protected nodes only when nothing else is left.
-      const candidates = unprotected.length > 0 ? unprotected : ordinaryNodes;
+      // A group's largest member is never folded. With more groups than slots
+      // (a short dashboard card holds ~7 nodes, six expense groups need twelve
+      // with their Other buckets) folding them left every group as a lone
+      // "Other" worth the whole group, which shows nothing. The cap gives way
+      // instead.
+      const candidates = unprotected.filter(k => foldSavesSlot(k, unprotected));
       for (const nodeKey of candidates) {
         const nodeValue = getNodeValue(graph, nodeKey);
         if (nodeValue < minValue) {

@@ -1,22 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 
 import { theme } from '@actual-app/components/theme';
 import { css, keyframes } from '@emotion/css';
 import { t } from 'i18next';
-import {
-  Layer,
-  Rectangle,
-  ResponsiveContainer,
-  Sankey,
-  Tooltip,
-} from 'recharts';
+import { Layer, ResponsiveContainer, Sankey, Tooltip } from 'recharts';
 import type { SankeyData } from 'recharts/types/chart/Sankey';
 
 import { Container } from '#components/reports/Container';
 import { useFormat } from '#hooks/useFormat';
 import { usePrivacyMode } from '#hooks/usePrivacyMode';
 import { useReducedMotion } from '#hooks/useReducedMotion';
+
+import {
+  NAME_FONT_SIZE,
+  planSankeyLabels,
+  VALUE_FONT_SIZE,
+} from './sankeyLabels';
+import type { SankeyLabelNode, SankeyLabelPlan } from './sankeyLabels';
 
 const fadeIn = keyframes({
   from: { opacity: 0 },
@@ -85,10 +86,20 @@ function SankeyLink({
     return null;
   }
   const linkColor = payload.color ?? theme.reportsGray;
-  const strokeWidth = linkWidth;
-  const strokeOpacity = isHovered ? 1 : 0.6;
+  const fillOpacity = isHovered ? 0.9 : 0.6;
   // use the link's midpoint so it eases in with the columns it spans
   const fraction = (sourceX + targetX) / 2 / containerWidth;
+  // Draw the band as a filled ribbon between two curves. A stroked curve this
+  // wide bulges past its endpoints wherever it bends, so a thick flow between
+  // two offset nodes swept across neighbouring columns.
+  const half = Math.max(0.5, linkWidth / 2);
+  const d = [
+    `M${sourceX},${sourceY - half}`,
+    `C${sourceControlX},${sourceY - half} ${targetControlX},${targetY - half} ${targetX},${targetY - half}`,
+    `L${targetX},${targetY + half}`,
+    `C${targetControlX},${targetY + half} ${sourceControlX},${sourceY + half} ${sourceX},${sourceY + half}`,
+    'Z',
+  ].join(' ');
 
   return (
     <path
@@ -99,47 +110,41 @@ function SankeyLink({
             ? fadeInClass(fraction)
             : hiddenClass
       }
-      d={`M${sourceX},${sourceY} C${sourceControlX},${sourceY} ${targetControlX},${targetY} ${targetX},${targetY}`}
-      fill="none"
-      stroke={linkColor}
-      strokeWidth={strokeWidth}
-      strokeOpacity={strokeOpacity}
+      d={d}
+      fill={linkColor}
+      fillOpacity={fillOpacity}
       cursor="default"
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      style={{ transition: 'stroke-opacity 0.2s ease' }}
+      style={{ transition: 'fill-opacity 0.2s ease' }}
     />
   );
 }
-
-// Vertical intervals already occupied by labels, per column. Rebuilt on every
-// chart render; nodes consult it to decide whether their second text line has
-// room, so the decision tracks the actual space below a node rather than the
-// node's own height — a 3px node with nothing under it can carry its amount.
-type LabelRegistry = Map<number, Array<[number, number]>>;
 
 type SankeyNodeProps = {
   x: number;
   y: number;
   width: number;
   height: number;
+  index: number;
   payload: SankeyGraphNode;
   containerWidth: number;
   phase: 'waiting' | 'animating' | 'done';
   showPercentages?: boolean;
   color?: string;
-  labelRegistry: LabelRegistry;
+  label: SankeyLabelPlan | undefined;
 };
 function SankeyNode({
   x,
   y,
   width,
   height,
+  index,
   payload,
   containerWidth,
   phase,
   showPercentages,
-  labelRegistry,
+  label,
 }: SankeyNodeProps) {
   const privacyMode = usePrivacyMode();
   const format = useFormat();
@@ -148,56 +153,21 @@ function SankeyNode({
   if (payload.value <= 0) {
     return null;
   }
-  const isOut = x + width + 6 > containerWidth;
 
   const fillColor = payload.color ?? theme.reportsBlue;
+  const valueText =
+    showPercentages && payload.percentageLabel
+      ? payload.percentageLabel
+      : format(payload.value, 'financial');
 
-  const renderText = (
-    text: string,
-    yOffset: number,
-    fontSize = 13,
-    opacity = 1,
-    fontFamily?: string,
-    yBase = y,
-  ) => (
-    <text
-      textAnchor={isOut ? 'end' : 'start'}
-      x={isOut ? x - 6 : x + width + 6}
-      y={yBase + yOffset}
-      fontSize={fontSize}
-      strokeOpacity={opacity}
-      fill={theme.pageText}
-      fontFamily={fontFamily}
-    >
-      {text}
-    </text>
-  );
-
-  // Two 13px/11px text lines hang from the node's vertical middle. Whether
-  // they fit is a question about the neighbours' labels in the same column,
-  // not about this node's height. Check the space already claimed: the amount
-  // line goes first, and the name too when it would overprint a neighbour's
-  // (a dense column otherwise turned into unreadable stacked text). A node
-  // without a label still shows its name and amount in the tooltip.
-  const NAME_ASCENT = 10;
-  const NAME_DESCENT = 3;
-  const VALUE_DESCENT = 3;
-  const middle = y + height / 2;
-  const nameTop = middle - NAME_ASCENT;
-  const nameBottom = middle + NAME_DESCENT;
-  const valueBottom = middle + 13 + VALUE_DESCENT;
-
-  const columnKey = Math.round(x);
-  const occupied = labelRegistry.get(columnKey) ?? [];
-  const overlaps = (top: number, bottom: number) =>
-    occupied.some(([t, b]) => top < b && bottom > t);
-
-  const showName = !overlaps(nameTop, nameBottom);
-  const showValueLine = showName && !overlaps(nameTop, valueBottom);
-  if (showName) {
-    occupied.push([nameTop, showValueLine ? valueBottom : nameBottom]);
-    labelRegistry.set(columnKey, occupied);
-  }
+  // A halo in the background colour keeps a label readable where it crosses
+  // the flows leaving its node.
+  const textStyle = {
+    stroke: theme.tableBackground,
+    strokeWidth: 3,
+    strokeLinejoin: 'round',
+    paintOrder: 'stroke',
+  } as const;
 
   return (
     <Layer
@@ -209,18 +179,43 @@ function SankeyNode({
             : hiddenClass
       }
     >
-      <Rectangle x={x} y={y} width={width} height={height} fill={fillColor} />
-      {showName && renderText(payload.name || '', height / 2)}
-      {showValueLine &&
-        renderText(
-          showPercentages && payload.percentageLabel
-            ? payload.percentageLabel
-            : format(payload.value, 'financial'),
-          height / 2 + 13,
-          11,
-          0.5,
-          privacyMode ? t('Redacted Script') : undefined,
-        )}
+      {/* The label planner reads node geometry and text back from here. */}
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        fill={fillColor}
+        data-sankey-node={index}
+        data-sankey-name={payload.name || ''}
+        data-sankey-value={valueText}
+      />
+      {label && (
+        <text
+          textAnchor={label.anchor}
+          x={label.x}
+          y={label.nameY}
+          fontSize={NAME_FONT_SIZE}
+          fill={theme.pageText}
+          {...textStyle}
+        >
+          {label.name}
+        </text>
+      )}
+      {label?.value && (
+        <text
+          textAnchor={label.anchor}
+          x={label.x}
+          y={label.valueY}
+          fontSize={VALUE_FONT_SIZE}
+          fill={theme.pageText}
+          fillOpacity={0.7}
+          fontFamily={privacyMode ? t('Redacted Script') : undefined}
+          {...textStyle}
+        >
+          {label.value}
+        </text>
+      )}
     </Layer>
   );
 }
@@ -254,6 +249,46 @@ const CHART_MARGIN = { left: 0, right: 0, top: 10, bottom: 25 };
 // Room a node needs for its two label lines when the chart may grow.
 const PX_PER_NODE_TO_FIT = 34;
 
+// The height at which every node of the busiest column can carry its label.
+function sankeyHeightToFit(data: SankeyData): number {
+  return (
+    widestColumn(data) * PX_PER_NODE_TO_FIT +
+    CHART_MARGIN.top +
+    CHART_MARGIN.bottom
+  );
+}
+
+let measureContext: CanvasRenderingContext2D | null | undefined;
+function measureWith(fontFamily: string) {
+  measureContext ??= document.createElement('canvas').getContext('2d');
+  return (text: string, fontSize: number) => {
+    if (!measureContext) {
+      // No canvas: assume a generous average glyph width.
+      return text.length * fontSize * 0.62;
+    }
+    measureContext.font = `${fontSize}px ${fontFamily}`;
+    return measureContext.measureText(text).width;
+  };
+}
+
+// Reads back the nodes recharts drew, in a form the planner understands.
+function readRenderedNodes(root: HTMLElement): SankeyLabelNode[] {
+  return [...root.querySelectorAll<SVGElement>('[data-sankey-node]')].map(
+    el => {
+      const box = (el as SVGGraphicsElement).getBBox();
+      return {
+        index: Number(el.dataset.sankeyNode),
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
+        name: el.dataset.sankeyName ?? '',
+        value: el.dataset.sankeyValue ?? '',
+      };
+    },
+  );
+}
+
 type SankeyGraphProps = {
   style?: CSSProperties;
   data: SankeyData;
@@ -263,8 +298,8 @@ type SankeyGraphProps = {
   // IntersectionObserver, which never fires for the offscreen copy the image
   // export draws — without this, the exported PNG would be blank.
   animationDisabled?: boolean;
-  // Grow taller than the container (scrolling) when the busiest column needs
-  // more room, instead of squeezing every node into the available height.
+  // Grow taller than the container (the page scrolls) when the busiest column
+  // needs more room, instead of squeezing every node into the available height.
   growToFit?: boolean;
 };
 export function SankeyGraph({
@@ -289,9 +324,40 @@ export function SankeyGraph({
     animationDisabled ? 'done' : 'waiting',
   );
 
-  // Fresh per render: recharts draws all nodes in one synchronous pass, and
-  // each node registers the label space it takes as it renders.
-  const labelRegistry: LabelRegistry = new Map();
+  // Labels are placed after recharts has laid the nodes out: render the nodes,
+  // read their geometry back, plan labels for the whole chart at once, and
+  // render again with the plan. Both passes happen before the browser paints.
+  const [labels, setLabels] = useState<{
+    signature: string;
+    plan: Map<number, SankeyLabelPlan>;
+  }>({ signature: '', plan: new Map() });
+
+  // Node geometry follows the chart's size as well as its data.
+  const [viewportSize, setViewportSize] = useState('');
+  useEffect(() => {
+    if (!viewportEl) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setViewportSize(`${entry.contentRect.width}x${entry.contentRect.height}`);
+    });
+    observer.observe(viewportEl);
+    return () => observer.disconnect();
+  }, [viewportEl]);
+
+  useLayoutEffect(() => {
+    if (!viewportEl) return;
+    const nodes = readRenderedNodes(viewportEl);
+    const signature = JSON.stringify(nodes);
+    if (signature === labels.signature) return;
+    const measure = measureWith(getComputedStyle(viewportEl).fontFamily);
+    setLabels({ signature, plan: planSankeyLabels(nodes, measure) });
+  }, [
+    viewportEl,
+    viewportSize,
+    data,
+    showPercentages,
+    privacyMode,
+    labels.signature,
+  ]);
 
   useEffect(() => {
     if (!viewportEl || phase !== 'waiting') return;
@@ -313,23 +379,19 @@ export function SankeyGraph({
   }, [phase]);
 
   return (
-    <Container style={style}>
+    <Container
+      style={
+        growToFit ? { ...style, minHeight: sankeyHeightToFit(data) } : style
+      }
+    >
       {(width, height) => {
         // recharts sizes nodes as (height - (n - 1) * padding) / total. With a
         // fixed 23px padding a 35-node column needs ~800px of gaps alone; in a
         // shorter chart the scale goes negative and nodes stack on each other
         // or land outside the plot. Keep the gaps to half the inner height.
         const busiest = widestColumn(data);
-        const chartHeight = growToFit
-          ? Math.max(
-              height,
-              busiest * PX_PER_NODE_TO_FIT +
-                CHART_MARGIN.top +
-                CHART_MARGIN.bottom,
-            )
-          : height;
-        const scrolls = chartHeight > height;
-        const chartWidth = scrolls ? Math.max(0, width - 16) : width;
+        const chartHeight = height;
+        const chartWidth = width;
         const innerHeight =
           chartHeight - CHART_MARGIN.top - CHART_MARGIN.bottom;
         const nodePadding =
@@ -348,7 +410,7 @@ export function SankeyGraph({
             style={{
               width: '100%',
               height: '100%',
-              overflowY: scrolls ? 'auto' : 'hidden',
+              overflow: 'hidden',
             }}
           >
             <div style={{ width: chartWidth, height: chartHeight }}>
@@ -361,7 +423,7 @@ export function SankeyGraph({
                       containerWidth={chartWidth}
                       phase={phase}
                       showPercentages={showPercentages}
-                      labelRegistry={labelRegistry}
+                      label={labels.plan.get(props.index)}
                     />
                   )}
                   link={props => (

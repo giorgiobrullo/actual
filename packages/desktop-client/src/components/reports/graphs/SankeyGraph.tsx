@@ -246,17 +246,6 @@ export function widestColumn(data: SankeyData): number {
 
 const MAX_NODE_PADDING = 23;
 const CHART_MARGIN = { left: 0, right: 0, top: 10, bottom: 25 };
-// Room a node needs for its two label lines when the chart may grow.
-const PX_PER_NODE_TO_FIT = 34;
-
-// The height at which every node of the busiest column can carry its label.
-function sankeyHeightToFit(data: SankeyData): number {
-  return (
-    widestColumn(data) * PX_PER_NODE_TO_FIT +
-    CHART_MARGIN.top +
-    CHART_MARGIN.bottom
-  );
-}
 
 let measureContext: CanvasRenderingContext2D | null | undefined;
 function measureWith(fontFamily: string) {
@@ -298,9 +287,6 @@ type SankeyGraphProps = {
   // IntersectionObserver, which never fires for the offscreen copy the image
   // export draws — without this, the exported PNG would be blank.
   animationDisabled?: boolean;
-  // Grow taller than the container (the page scrolls) when the busiest column
-  // needs more room, instead of squeezing every node into the available height.
-  growToFit?: boolean;
 };
 export function SankeyGraph({
   style,
@@ -308,7 +294,6 @@ export function SankeyGraph({
   showTooltip = true,
   showPercentages = false,
   animationDisabled = false,
-  growToFit = false,
 }: SankeyGraphProps) {
   const privacyMode = usePrivacyMode();
   const format = useFormat();
@@ -379,21 +364,14 @@ export function SankeyGraph({
   }, [phase]);
 
   return (
-    <Container
-      style={
-        growToFit ? { ...style, minHeight: sankeyHeightToFit(data) } : style
-      }
-    >
+    <Container style={style}>
       {(width, height) => {
         // recharts sizes nodes as (height - (n - 1) * padding) / total. With a
         // fixed 23px padding a 35-node column needs ~800px of gaps alone; in a
         // shorter chart the scale goes negative and nodes stack on each other
         // or land outside the plot. Keep the gaps to half the inner height.
         const busiest = widestColumn(data);
-        const chartHeight = height;
-        const chartWidth = width;
-        const innerHeight =
-          chartHeight - CHART_MARGIN.top - CHART_MARGIN.bottom;
+        const innerHeight = height - CHART_MARGIN.top - CHART_MARGIN.bottom;
         const nodePadding =
           busiest > 1
             ? Math.max(
@@ -413,14 +391,14 @@ export function SankeyGraph({
               overflow: 'hidden',
             }}
           >
-            <div style={{ width: chartWidth, height: chartHeight }}>
+            <div style={{ width, height }}>
               <ResponsiveContainer>
                 <Sankey
                   data={data}
                   node={props => (
                     <SankeyNode
                       {...props}
-                      containerWidth={chartWidth}
+                      containerWidth={width}
                       phase={phase}
                       showPercentages={showPercentages}
                       label={labels.plan.get(props.index)}
@@ -429,7 +407,7 @@ export function SankeyGraph({
                   link={props => (
                     <SankeyLink
                       {...props}
-                      containerWidth={chartWidth}
+                      containerWidth={width}
                       phase={phase}
                       isHovered={hoveredLinkIndex === props.index}
                       onMouseEnter={() => setHoveredLinkIndex(props.index)}
@@ -439,8 +417,8 @@ export function SankeyGraph({
                   sort={false}
                   iterations={128}
                   nodePadding={nodePadding}
-                  width={chartWidth}
-                  height={chartHeight}
+                  width={width}
+                  height={height}
                   margin={CHART_MARGIN}
                 >
                   {showTooltip && (

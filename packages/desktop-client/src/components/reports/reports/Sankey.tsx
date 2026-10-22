@@ -1102,13 +1102,16 @@ function SankeyInner({ widget }: SankeyInnerProps) {
                     style={{
                       flexDirection: 'column',
                       flexGrow: 1,
+                      // Fill the window below the header (~260px with the
+                      // toolbar and a filter row); the help text below can
+                      // scroll into view, the chart itself never needs to.
+                      minHeight: 'max(420px, calc(100vh - 260px))',
                     }}
                   >
                     <SankeyGraph
                       style={{ flexGrow: 1 }}
                       data={displayData}
                       showPercentages={showPercentages}
-                      growToFit
                     />
                   </View>
                 ) : (

@@ -40,6 +40,9 @@ vi.mock('i18next', () => ({
     if (params && params.category) {
       return `translated: ${key} (${params.category})`;
     }
+    if (params && params.name) {
+      return `translated: ${key} (${params.name})`;
+    }
     return `translated: ${key}`;
   },
 }));
@@ -861,10 +864,14 @@ describe('sankey-spreadsheet', () => {
       expect(names).toContain('Cat D');
       expect(names).not.toContain('Cat B');
       expect(names).not.toContain('Cat C');
-      const otherCount = data.nodes.filter(
-        n => n.key.endsWith('__OTHER_BUCKET') && n.name === 'Other',
-      ).length;
-      expect(otherCount).toBe(2);
+      // Each group folds into its own bucket, named after the group.
+      const otherNames = data.nodes
+        .filter(n => n.key.endsWith('__OTHER_BUCKET'))
+        .map(n => n.name);
+      expect(otherNames.sort()).toEqual([
+        'translated: Other {{name}} (Big Group)',
+        'translated: Other {{name}} (Small Group)',
+      ]);
     });
 
     it('keeps every group maximum even when the cap is smaller than the number of groups', () => {

@@ -1462,30 +1462,34 @@ function moveToOther(
   const toNodes = Array.from(graph.get(key)?.to.keys() ?? []);
   const fromNodes = Array.from(graph).filter(([, data]) => data.to.has(key));
 
-  let otherKey: NodeKey;
-  if (globalOther) {
-    otherKey = nodeData.type + SpecialNodeKeys.OtherSuffix;
-  } else {
-    otherKey = nodeData.type + SpecialNodeKeys.OtherSuffix;
-
+  let otherKey: NodeKey = nodeData.type + SpecialNodeKeys.OtherSuffix;
+  // The node a per-group bucket hangs off (the category's group, or the
+  // income category a payee feeds), so the bucket can be named after it.
+  let anchorKey: NodeKey | undefined;
+  if (!globalOther) {
     if (nodeData.type === GraphLayers.Category) {
-      const categoryGroupResult = getCategoryGroup(graph, key);
-      if (categoryGroupResult) {
-        const categoryGroupKey = categoryGroupResult[0];
-        otherKey = categoryGroupKey + SpecialNodeKeys.OtherSuffix;
-      }
+      anchorKey = getCategoryGroup(graph, key)?.[0];
     } else if (nodeData.type === GraphLayers.IncomePayee) {
-      const incomeCategoryKey = Array.from(
-        graph.get(key)?.to.keys() ?? [],
-      ).find(k => graph.get(k)?.type === GraphLayers.IncomeCategory);
-      if (incomeCategoryKey) {
-        otherKey = incomeCategoryKey + SpecialNodeKeys.OtherSuffix;
-      }
+      anchorKey = Array.from(graph.get(key)?.to.keys() ?? []).find(
+        k => graph.get(k)?.type === GraphLayers.IncomeCategory,
+      );
+    }
+    if (anchorKey) {
+      otherKey = anchorKey + SpecialNodeKeys.OtherSuffix;
     }
   }
 
-  // Make sure the Other node exists
-  addNode(graph, otherKey, nodeData.type, 'Other');
+  // Make sure the Other node exists. Several per-group buckets can share a
+  // column, and a bare "Other" beside a real category called Other says
+  // nothing, so name each bucket after its group.
+  const anchorName = anchorKey ? graph.get(anchorKey)?.name : undefined;
+  if (anchorName) {
+    addNodeWithLabel(graph, otherKey, nodeData.type, 'Other {{name}}', {
+      name: anchorName,
+    });
+  } else {
+    addNodeWithLabel(graph, otherKey, nodeData.type, 'Other');
+  }
 
   fromNodes.forEach(([fromKey, fromData]) => {
     const linkValue = fromData.to.get(key);

@@ -841,7 +841,7 @@ describe('sankey-spreadsheet', () => {
       expect(graph).toEqual(new Map());
     });
 
-    it('names a refund-heavy expense category and a reversed income category after the category, not a payee', () => {
+    it('labels refund-heavy expense and reversed income categories after the category', () => {
       const categoryData = [
         {
           categoryGroup: 'Travel',
@@ -853,8 +853,8 @@ describe('sankey-spreadsheet', () => {
           isNegative: false,
           accountName: 'Checking',
           accountId: 'a_checking',
-          // expense rows are not grouped by payee: this is whichever row came
-          // first, not the source of the money
+          // rows are grouped by category and payee, so this is the payee the
+          // refunds came from
           payeeName: 'Some Payee',
           payeeId: 'p_some',
         },
@@ -878,7 +878,9 @@ describe('sankey-spreadsheet', () => {
 
       expect(names).toContain('Lodging (refunds)');
       expect(names).toContain('Wages (reversed)');
-      expect(names).not.toContain('Some Payee');
+      // The refund's payee feeds the refunds node; the reversed income node
+      // still aggregates every payee of its category.
+      expect(graph.get('p_some')?.to.has('c_lodging__NEGATIVE')).toBe(true);
       expect(names).not.toContain('Other Payee');
     });
 
